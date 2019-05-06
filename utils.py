@@ -3,12 +3,12 @@ from tqdm import trange
 import torch
 
 def sample_noise(N, NOISE_DIM):
-    return np.random.normal(size=(N,NOISE_DIM)).astype(np.float32)
+    return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
 
 def iterate_minibatches(X, batchsize, y=None):
     perm = np.random.permutation(X.shape[0])
     
-    for start in trange(0, X.shape[0], batchsize):
+    for start in range(0, X.shape[0], batchsize):
         end = min(start + batchsize, X.shape[0])
         if y is None:
             yield X[perm[start:end]]
