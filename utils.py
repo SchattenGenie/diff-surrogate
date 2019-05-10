@@ -17,7 +17,7 @@ def iterate_minibatches(X, batchsize, y=None):
             
 def generate_data(y_sampler, device, n_samples, mu_range=(-5, 5)):
     mus = ((mu_range[0] - mu_range[1]) * (torch.rand(n_samples)) + mu_range[1]).to(device)
-    xs = y_sampler.x_dist.sample([n_samples]).to(device)
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples])).to(device)
 
     y_sampler.make_condition_sample({'mu': mus, 'X':xs})
     
