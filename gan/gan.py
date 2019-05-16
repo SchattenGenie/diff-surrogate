@@ -56,8 +56,8 @@ class Discriminator(nn.Module):
         x = torch.cat([x, params], dim=1)
         h1 = torch.tanh(self.fc1(x))
         h2 = F.leaky_relu(self.fc2(h1))
-        h3 = F.leaky_relu(self.fc3(h2))
-        score = torch.sigmoid(self.fc4(h3))
+        #h3 = F.leaky_relu(self.fc3(h2))
+        score = torch.sigmoid(self.fc4(h2))
         return score
     
 class WSDiscriminator(nn.Module):

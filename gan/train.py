@@ -1,27 +1,38 @@
 from comet_ml import Experiment
 import os
 import sys
+import math
 sys.path.append("..")
 
 TASK = int(sys.argv[1])
 NOISE_DIM = int(sys.argv[2])
-exp_tag = sys.argv[3]
+exp_tags = sys.argv[3].split("*")
 data_size = int(sys.argv[4])
+n_d_train = int(sys.argv[5])
+batch_size = int(sys.argv[6])
+learning_rate = float(sys.argv[7])
+INSTANCE_NOISE = bool(int(sys.argv[8]))
 
-PROJ_NAME = "gan_data_size"
+INST_NOISE_STD = 0.3#math.sqrt(1)
+
+
+PROJ_NAME = "gan_simple_model"
 PATH = "./snapshots/" + PROJ_NAME + "_" + str(data_size) + ".tar"
 
 hyper_params = {
     "TASK": TASK,
-    "batch_size": 128, # initially was 64
+    "batch_size": batch_size, # initially was 64
     "NOISE_DIM": NOISE_DIM,
     "num_epochs": 1000,
-    "learning_rate": 0.001,
-    "data_size": data_size
+    "learning_rate": learning_rate,
+    "data_size": data_size,
+    "n_d_train": n_d_train,
+    "INST_NOISE_STD": INST_NOISE_STD,
+    "INSTANCE_NOISE": INSTANCE_NOISE
 }
 experiment = Experiment(project_name=PROJ_NAME, workspace="shir994")
 experiment.log_parameters(hyper_params)
-experiment.add_tag(exp_tag)
+experiment.add_tags(exp_tags)
 
 os.environ['CUDA_VISIBLE_DEVICES']= '3'
 os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
@@ -45,7 +56,7 @@ import seaborn as sns
 
 device = torch.device("cuda", 0)
 TASK = hyper_params['TASK']
-
+experiment.log_asset("./gan.py", overwrite=True)
 
 generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1).to(device)
 if TASK == 4:
@@ -104,6 +115,25 @@ def draw_mu_samples(mu_range):
             plt.title("mu={:.3f} ".format(mu_range[i*3 + j])) 
     return f
 
+def draw_X_samples(x_range):
+    f = plt.figure(figsize=(21,16))
+    for i in range(4):
+        for j in range(3):
+            plt.subplot(4,3, i*3 + j + 1)
+            X = torch.tensor([float(x_range[i*3 + j])] * fixed_noise.shape[0])
+            y_sampler.make_condition_sample({'X': X})
+
+            mu = y_sampler.mu_dist.sample(X.shape).to(device)
+            x = X.to(device)
+
+            plt.hist(y_sampler.condition_sample().cpu().numpy(), bins=100, density=True, label='true');
+            plt.hist(generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy(),
+                     bins=100, color='g', density=True, alpha=0.5, label='gan');
+            plt.grid()
+            plt.legend()
+            plt.title("x={:.3f} ".format(x_range[i*3 + j])) 
+    return f
+
 def calculate_validation_metrics(mu_range, epoch):
     js = []
     ks = []
@@ -122,21 +152,27 @@ def calculate_validation_metrics(mu_range, epoch):
     train_data_js = metric_calc.compute_JS(data.cpu(), generator(train_fixed_noise, inputs).detach().cpu())
     train_data_ks = metric_calc.compute_KSStat(data.cpu().numpy(),
                                                generator(train_fixed_noise, inputs).detach().cpu().numpy())
+    
+    
 
     experiment.log_metric("average_mu_JS", np.mean(js), step=epoch)
     experiment.log_metric("train_data_JS", train_data_js, step=epoch)
     
     experiment.log_metric("average_mu_KS", np.mean(ks), step=epoch)
     experiment.log_metric("train_data_KS", train_data_ks, step=epoch)    
-    
-    
+    for order in range(1, 4):
+        metric_diff = metric_calc.compute_moment(data.cpu(), order) - \
+                      metric_calc.compute_moment(generator(train_fixed_noise, inputs).detach().cpu(),
+                                                 order)
+        experiment.log_metric("train_data_diff_order_" + str(order), metric_diff)
+        
 def run_training():
 
     # ===========================
     # IMPORTANT PARAMETER:
     # Number of D updates per G update
     # ===========================
-    k_d, k_g = 4, 1
+    k_d, k_g = hyper_params["n_d_train"], 1
 
     gan_losses = GANLosses(TASK, device)
 
@@ -155,6 +191,12 @@ def run_training():
                         # Do an update
                         inp_data = input_data.to(device)
                         data_gen = generator(noise, inputs_batch)
+
+                        if INSTANCE_NOISE:
+                            inp_data += torch.distributions.Normal(0,hyper_params['INST_NOISE_STD']).\
+                                        sample(inp_data.shape).to(device)
+                            data_gen += torch.distributions.Normal(0, hyper_params['INST_NOISE_STD']).\
+                                        sample(data_gen.shape).to(device)
 
                         loss = gan_losses.d_loss(discriminator(data_gen, inputs_batch),
                                                 discriminator(inp_data, inputs_batch))
@@ -181,6 +223,9 @@ def run_training():
 
                         # Do an update
                         data_gen = generator(noise, inputs_batch)
+                        if INSTANCE_NOISE:
+                            data_gen += torch.distributions.Normal(0, hyper_params['INST_NOISE_STD']).\
+                                        sample(data_gen.shape).to(device)
                         loss = gan_losses.g_loss(discriminator(data_gen, inputs_batch))
                         g_optimizer.zero_grad()
                         loss.backward()
@@ -196,12 +241,17 @@ def run_training():
                     mu_range = list(range(-10, 10, 4))
                     x_range = list(range(1, 13, 3))
                     f = draw_conditional_samples(mu_range, x_range)
-                    experiment.log_figure("conditional_samples", f)
+                    experiment.log_figure("conditional_samples_{}".format(epoch), f)
                     plt.close(f)
 
                     mu_range = list(range(-10, 13, 2))
                     f = draw_mu_samples(mu_range)
-                    experiment.log_figure("mu_samples", f)
+                    experiment.log_figure("mu_samples_{}".format(epoch), f)
+                    plt.close(f)
+                    
+                    x_range = list(range(-12, 12, 2))
+                    f = draw_X_samples(x_range)
+                    experiment.log_figure("x_samples_{}".format(epoch), f)
                     plt.close(f)
                     
                     torch.save({
