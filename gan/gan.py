@@ -56,8 +56,8 @@ class Discriminator(nn.Module):
         x = torch.cat([x, params], dim=1)
         h1 = torch.tanh(self.fc1(x))
         h2 = F.leaky_relu(self.fc2(h1))
-        #h3 = F.leaky_relu(self.fc3(h2))
-        score = torch.sigmoid(self.fc4(h2))
+        h3 = F.leaky_relu(self.fc3(h2))
+        score = torch.sigmoid(self.fc4(h3))
         return score
     
 class WSDiscriminator(nn.Module):
@@ -82,7 +82,7 @@ class WSDiscriminator(nn.Module):
 
     def forward(self, x, params):
         x = torch.cat([x, params], dim=1)
-        h1 = F.tanh(self.fc1(x))
+        h1 = torch.tanh(self.fc1(x))
         h2 = F.leaky_relu(self.fc2(h1))
         h3 = F.leaky_relu(self.fc3(h2))
         score = self.fc4(h3)
@@ -98,7 +98,7 @@ class GANLosses(object):
         eps = 1e-10
         if self.TASK == 1: 
             loss = torch.log(1 - discrim_output + eps).mean()    
-        elif self.TASK == 2:
+        elif self.TASK in [2,5]:
             loss = - torch.log(discrim_output + eps).mean()
         elif self.TASK in (3, 4):
             loss = - discrim_output.mean()
@@ -106,7 +106,7 @@ class GANLosses(object):
 
     def d_loss(self, discrim_output_gen, discrim_output_real):
         eps = 1e-10
-        if self.TASK in (1, 2): 
+        if self.TASK in (1, 2, 5): 
             loss = - torch.log(discrim_output_real + eps).mean() - torch.log(1 - discrim_output_gen + eps).mean()
         elif self.TASK in (3, 4):
             loss = - (discrim_output_real.mean() - discrim_output_gen.mean())
@@ -128,3 +128,12 @@ class GANLosses(object):
 
         gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * lambda_reg
         return gradient_penalty
+    
+    def calc_zero_centered_GP(self, discriminator, data_gen, inputs_batch, inp_data, gamma_reg = .1):
+        
+        local_input = inp_data.clone().detach().requires_grad_(True)
+        disc_interpolates = discriminator(local_input, inputs_batch)
+        gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=local_input,
+                                        grad_outputs=torch.ones(disc_interpolates.size()).to(self.device),
+                                        create_graph=True, retain_graph=True, only_inputs=True)[0]
+        return gamma_reg / 2 * (gradients.norm(2, dim=1) ** 2).mean() 

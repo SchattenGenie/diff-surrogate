@@ -4,6 +4,28 @@ import sys
 import math
 sys.path.append("..")
 
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torch
+from pyro import distributions as dist
+
+import numpy as np
+from tqdm import trange
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+from time import time
+
+from model import YModel
+from gan import Generator, Discriminator, WSDiscriminator, GANLosses
+from metrics import Metrics
+from utils import sample_noise, iterate_minibatches, generate_data
+from utils import DistPlotter
+
+os.environ['CUDA_VISIBLE_DEVICES']= '3'
+os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
+
 TASK = int(sys.argv[1])
 NOISE_DIM = int(sys.argv[2])
 exp_tags = sys.argv[3].split("*")
@@ -12,159 +34,128 @@ n_d_train = int(sys.argv[5])
 batch_size = int(sys.argv[6])
 learning_rate = float(sys.argv[7])
 INSTANCE_NOISE = bool(int(sys.argv[8]))
+snapshot_name = sys.argv[9]
 
-INST_NOISE_STD = 0.3#math.sqrt(1)
+INST_NOISE_STD = 0.3
 
 
-PROJ_NAME = "gan_simple_model"
-PATH = "./snapshots/" + PROJ_NAME + "_" + str(data_size) + ".tar"
+PROJ_NAME = "2d_mu"
+PATH = "./snapshots/" + PROJ_NAME + "_" + snapshot_name + ".tar"
 
 hyper_params = {
     "TASK": TASK,
-    "batch_size": batch_size, # initially was 64
+    "batch_size": batch_size,
     "NOISE_DIM": NOISE_DIM,
     "num_epochs": 1000,
     "learning_rate": learning_rate,
     "data_size": data_size,
     "n_d_train": n_d_train,
     "INST_NOISE_STD": INST_NOISE_STD,
-    "INSTANCE_NOISE": INSTANCE_NOISE
+    "INSTANCE_NOISE": INSTANCE_NOISE,
+    "mu_range": (-10, 10)
 }
+
+if sys.argv[10]:
+    from comet_ml import API
+    import comet_ml
+    import io
+    comet_api = API()
+    comet_api.get()
+    exp = comet_api.get("shir994/2d-mu/{}".format(sys.argv[10]))
+    keys = hyper_params.keys()
+    hyper_params = {}
+    for param in exp.parameters:
+        if param["name"] in keys:
+            if param["name"] == "INSTANCE_NOISE":
+                hyper_params[param["name"]] = param["valueMin"] == 'true'
+            else:
+                hyper_params[param["name"]] = eval(param["valueMin"])
+    asset_id = [exp_a['assetId'] for exp_a in exp.asset_list if exp_a['fileName'] == "2d_mu_mu_2d.tar"][0]
+    params = exp.get_asset(asset_id)
+    state_dict = torch.load(io.BytesIO(params))
+    hyper_params['num_epochs'] = 5000
+
+
 experiment = Experiment(project_name=PROJ_NAME, workspace="shir994")
 experiment.log_parameters(hyper_params)
 experiment.add_tags(exp_tags)
 
-os.environ['CUDA_VISIBLE_DEVICES']= '3'
-os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
-
-from model import YModel, R
-from gan import Generator, Discriminator, WSDiscriminator, GANLosses
-from metrics import Metrics
-from utils import sample_noise, iterate_minibatches, generate_data
-
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torch
-
-import numpy as np
-from tqdm import trange
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-
 device = torch.device("cuda", 0)
 TASK = hyper_params['TASK']
 experiment.log_asset("./gan.py", overwrite=True)
+experiment.log_asset("../model.py", overwrite=True)
 
-generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1).to(device)
+generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1, input_param=3).to(device)
 if TASK == 4:
-    discriminator = WSDiscriminator(in_dim=1).to(device)
+    discriminator = WSDiscriminator(in_dim=1, input_param=3).to(device)
 else:
-    discriminator = Discriminator(in_dim=1).to(device)
+    discriminator = Discriminator(in_dim=1, input_param=3).to(device)
 
 g_optimizer = optim.Adam(generator.parameters(),     lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
 d_optimizer = optim.Adam(discriminator.parameters(), lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
 
+if sys.argv[10]:
+    generator.load_state_dict(state_dict['gen_state_dict'])
+    discriminator.load_state_dict(state_dict['dis_state_dict'])
+    g_optimizer.load_state_dict(state_dict['genopt_state_dict'])
+    d_optimizer.load_state_dict(state_dict['disopt_state_dict'])
+    
+
 y_sampler = YModel()
 fixed_noise = torch.Tensor(sample_noise(10000, hyper_params['NOISE_DIM'])).to(device)
-data, inputs = generate_data(y_sampler, device, data_size, mu_range=(-30, 30))
+data, inputs = generate_data(y_sampler, device, data_size, mu_range=hyper_params["mu_range"], mu_dim=2)
 train_fixed_noise = torch.Tensor(sample_noise(data.shape[0], hyper_params['NOISE_DIM'])).to(device)
 metric_calc = Metrics((-50, 50), 100)
+dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=2)
 
-def draw_conditional_samples(mu_range, x_range):
-    f = plt.figure(figsize=(21,16))
-
-    for i in range(4):
-        x = torch.Tensor([float(x_range[i])] * fixed_noise.shape[0]).to(device)
-        for j in range(4):
-            mu = torch.Tensor([float(mu_range[j])] * fixed_noise.shape[0]).to(device)
-            plt.subplot(4,4, i*4 + j + 1)
-
-            y_sampler.make_condition_sample({'mu': mu, 'X':x})
-            data = y_sampler.condition_sample().detach().cpu().numpy()
-
-            plt.hist(data, bins=100, density=True, label='true');
-            plt.hist(generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy(),
-                     bins=100, color='g', density=True, alpha=0.5, label='gan');
-            plt.grid()
-            plt.legend()
-            if j == 0:
-                plt.ylabel("x={:.3f}".format(x[0].item()), fontsize=19)
-            if i == 0:
-                plt.title("mu={:.3f}".format(mu[0].item()), fontsize=19)            
-    return f
-
-def draw_mu_samples(mu_range):
-    f = plt.figure(figsize=(21,16))
-    for i in range(4):
-        for j in range(3):
-            plt.subplot(4,3, i*3 + j + 1)
-            mu = torch.tensor([float(mu_range[i*3 + j])] * fixed_noise.shape[0])
-            y_sampler.make_condition_sample({'mu': mu})
-
-            x = y_sampler.x_dist.sample(mu.shape).to(device)
-            mu = mu.to(device)
-
-            plt.hist(y_sampler.condition_sample().cpu().numpy(), bins=100, density=True, label='true');
-            plt.hist(generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy(),
-                     bins=100, color='g', density=True, alpha=0.5, label='gan');
-            plt.grid()
-            plt.legend()
-            plt.title("mu={:.3f} ".format(mu_range[i*3 + j])) 
-    return f
-
-def draw_X_samples(x_range):
-    f = plt.figure(figsize=(21,16))
-    for i in range(4):
-        for j in range(3):
-            plt.subplot(4,3, i*3 + j + 1)
-            X = torch.tensor([float(x_range[i*3 + j])] * fixed_noise.shape[0])
-            y_sampler.make_condition_sample({'X': X})
-
-            mu = y_sampler.mu_dist.sample(X.shape).to(device)
-            x = X.to(device)
-
-            plt.hist(y_sampler.condition_sample().cpu().numpy(), bins=100, density=True, label='true');
-            plt.hist(generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy(),
-                     bins=100, color='g', density=True, alpha=0.5, label='gan');
-            plt.grid()
-            plt.legend()
-            plt.title("x={:.3f} ".format(x_range[i*3 + j])) 
-    return f
-
-def calculate_validation_metrics(mu_range, epoch):
+def calculate_validation_metrics(mu_range, epoch, points_size=100, sample_size=2000):
     js = []
     ks = []
-    for _mu in mu_range:
-        mu = torch.tensor([float(_mu)] * fixed_noise.shape[0])
-        y_sampler.make_condition_sample({'mu': mu})
+#     for _mu in range(*mu_range, 1):
+#         mu = torch.tensor([float(_mu)] * fixed_noise.shape[0])
+#         y_sampler.make_condition_sample({'mu': mu})
 
-        x = y_sampler.x_dist.sample(mu.shape).to(device)
-        mu = mu.to(device)
+#         x = y_sampler.x_dist.sample(mu.shape).to(device)
+#         mu = mu.to(device)
 
-        js.append(metric_calc.compute_JS(y_sampler.condition_sample().cpu(),
-                  generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu()).item())
-        ks.append(metric_calc.compute_KSStat(y_sampler.condition_sample().cpu().numpy(),
-                  generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy()).item())        
+#         js.append(metric_calc.compute_JS(y_sampler.condition_sample().cpu(),
+#                   generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu()).item())
+#         ks.append(metric_calc.compute_KSStat(y_sampler.condition_sample().cpu().numpy(),
+#                   generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy()).item())
 
+    if (epoch + 1) % 20 == 0:
+        mu = dist.Uniform(*mu_range).sample([points_size, 2])
+        x = y_sampler.x_dist.sample([points_size, 1])
+        inputs_mu_x = torch.cat([mu, x], dim=1).to(device)
+        for index in range(points_size):
+            noise = torch.Tensor(sample_noise(sample_size, hyper_params['NOISE_DIM'])).to(device) 
+            sample_inputs = inputs_mu_x[index, :].reshape(1,-1).repeat([sample_size, 1])
+            gen_samples = generator(noise, sample_inputs).detach().cpu()
+        
+            y_sampler.make_condition_sample({'mu': sample_inputs[:, :2], 'X': sample_inputs[:, 2:3]})
+            true_samples = y_sampler.condition_sample().cpu()
+            js.append(metric_calc.compute_JS(true_samples, gen_samples).item())
+            ks.append(metric_calc.compute_KSStat(true_samples.numpy(), gen_samples.numpy()).item())
+        experiment.log_metric("average_mu_JS", np.mean(js), step=epoch)
+        experiment.log_metric("average_mu_KS", np.mean(ks), step=epoch)
+            
     train_data_js = metric_calc.compute_JS(data.cpu(), generator(train_fixed_noise, inputs).detach().cpu())
     train_data_ks = metric_calc.compute_KSStat(data.cpu().numpy(),
                                                generator(train_fixed_noise, inputs).detach().cpu().numpy())
-    
-    
 
-    experiment.log_metric("average_mu_JS", np.mean(js), step=epoch)
+    #experiment.log_metric("average_mu_JS", np.mean(js), step=epoch)
     experiment.log_metric("train_data_JS", train_data_js, step=epoch)
     
-    experiment.log_metric("average_mu_KS", np.mean(ks), step=epoch)
+    #experiment.log_metric("average_mu_KS", np.mean(ks), step=epoch)
     experiment.log_metric("train_data_KS", train_data_ks, step=epoch)    
     for order in range(1, 4):
-        metric_diff = metric_calc.compute_moment(data.cpu(), order) - \
-                      metric_calc.compute_moment(generator(train_fixed_noise, inputs).detach().cpu(),
+        moment_of_true = metric_calc.compute_moment(data.cpu(), order)
+        moment_of_generated = metric_calc.compute_moment(generator(train_fixed_noise, inputs).detach().cpu(),
                                                  order)
+        metric_diff = moment_of_true - moment_of_generated
+        
         experiment.log_metric("train_data_diff_order_" + str(order), metric_diff)
+        experiment.log_metric("train_data_gen_order_" + str(order), moment_of_generated)
         
 def run_training():
 
@@ -207,6 +198,13 @@ def run_training():
                                                                             inp_data.data)
                             loss += grad_penalty
 
+                        if TASK == 5:
+                            grad_penalty = gan_losses.calc_zero_centered_GP(discriminator,
+                                                                            data_gen.data,
+                                                                            inputs_batch.data,
+                                                                            inp_data.data)
+                            loss -= grad_penalty                            
+
                         d_optimizer.zero_grad()
                         loss.backward()
                         d_optimizer.step()
@@ -235,23 +233,26 @@ def run_training():
                 experiment.log_metric("d_loss", np.mean(dis_epoch_loss), step=epoch)
                 experiment.log_metric("g_loss", np.mean(gen_epoch_loss), step=epoch)
                 
-                calculate_validation_metrics(list(range(-30, 30, 2)), epoch)
+                calculate_validation_metrics(hyper_params["mu_range"], epoch)
                 
                 if epoch % 20 == 0:
-                    mu_range = list(range(-10, 10, 4))
-                    x_range = list(range(1, 13, 3))
-                    f = draw_conditional_samples(mu_range, x_range)
+                    mu_range = hyper_params["mu_range"]
+                    f = dist_plotter.draw_conditional_samples(mu_range)
                     experiment.log_figure("conditional_samples_{}".format(epoch), f)
                     plt.close(f)
 
-                    mu_range = list(range(-10, 13, 2))
-                    f = draw_mu_samples(mu_range)
+                    mu_range = hyper_params["mu_range"]
+                    f = dist_plotter.draw_mu_samples(mu_range)
                     experiment.log_figure("mu_samples_{}".format(epoch), f)
                     plt.close(f)
                     
-                    x_range = list(range(-12, 12, 2))
-                    f = draw_X_samples(x_range)
+                    x_range = (-10,10)
+                    f = dist_plotter.draw_X_samples(x_range)
                     experiment.log_figure("x_samples_{}".format(epoch), f)
+                    plt.close(f)
+
+                    f = dist_plotter.draw_mu_2d_samples(hyper_params["mu_range"])
+                    experiment.log_figure("mu_samples_2d_{}".format(epoch), f)
                     plt.close(f)
                     
                     torch.save({
