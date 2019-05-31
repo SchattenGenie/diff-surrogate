@@ -23,7 +23,7 @@ from metrics import Metrics
 from utils import sample_noise, iterate_minibatches, generate_data
 from utils import DistPlotter
 
-os.environ['CUDA_VISIBLE_DEVICES']= '3'
+os.environ['CUDA_VISIBLE_DEVICES']= '0'
 os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
 
 TASK = int(sys.argv[1])
@@ -39,7 +39,7 @@ snapshot_name = sys.argv[9]
 INST_NOISE_STD = 0.3
 
 
-PROJ_NAME = "2d_mu"
+PROJ_NAME = "interpolation_test_1d"
 PATH = "./snapshots/" + PROJ_NAME + "_" + snapshot_name + ".tar"
 
 hyper_params = {
@@ -52,16 +52,18 @@ hyper_params = {
     "n_d_train": n_d_train,
     "INST_NOISE_STD": INST_NOISE_STD,
     "INSTANCE_NOISE": INSTANCE_NOISE,
-    "mu_range": (-10, 10)
+    "mu_range": (-10, 11),
+    "mu_dim": 1,
+    "x_dim": 1
 }
 
-if sys.argv[10]:
+if len(sys.argv) == 11:
     from comet_ml import API
     import comet_ml
     import io
     comet_api = API()
     comet_api.get()
-    exp = comet_api.get("shir994/2d-mu/{}".format(sys.argv[10]))
+    exp = comet_api.get("shir994/interpolation-test-1d/{}".format(sys.argv[10]))
     keys = hyper_params.keys()
     hyper_params = {}
     for param in exp.parameters:
@@ -70,10 +72,11 @@ if sys.argv[10]:
                 hyper_params[param["name"]] = param["valueMin"] == 'true'
             else:
                 hyper_params[param["name"]] = eval(param["valueMin"])
-    asset_id = [exp_a['assetId'] for exp_a in exp.asset_list if exp_a['fileName'] == "2d_mu_mu_2d.tar"][0]
+    asset_id = [exp_a['assetId'] for exp_a in exp.asset_list if exp_a['fileName'] == "interpolation_test_1d_interpol.tar"][0]
     params = exp.get_asset(asset_id)
     state_dict = torch.load(io.BytesIO(params))
     hyper_params['num_epochs'] = 5000
+    hyper_params['learning_rate'] = 0.00005
 
 
 experiment = Experiment(project_name=PROJ_NAME, workspace="shir994")
@@ -85,16 +88,19 @@ TASK = hyper_params['TASK']
 experiment.log_asset("./gan.py", overwrite=True)
 experiment.log_asset("../model.py", overwrite=True)
 
-generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1, input_param=3).to(device)
+generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1,
+                      input_param=hyper_params['mu_dim'] + hyper_params['x_dim']).to(device)
 if TASK == 4:
-    discriminator = WSDiscriminator(in_dim=1, input_param=3).to(device)
+    discriminator = WSDiscriminator(in_dim=1,
+                                   input_param=hyper_params['mu_dim'] + hyper_params['x_dim']).to(device)
 else:
-    discriminator = Discriminator(in_dim=1, input_param=3).to(device)
+    discriminator = Discriminator(in_dim=1,
+                                 input_param=hyper_params['mu_dim'] + hyper_params['x_dim']).to(device)
 
 g_optimizer = optim.Adam(generator.parameters(),     lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
 d_optimizer = optim.Adam(discriminator.parameters(), lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
 
-if sys.argv[10]:
+if len(sys.argv) == 11:
     generator.load_state_dict(state_dict['gen_state_dict'])
     discriminator.load_state_dict(state_dict['dis_state_dict'])
     g_optimizer.load_state_dict(state_dict['genopt_state_dict'])
@@ -103,36 +109,31 @@ if sys.argv[10]:
 
 y_sampler = YModel()
 fixed_noise = torch.Tensor(sample_noise(10000, hyper_params['NOISE_DIM'])).to(device)
-data, inputs = generate_data(y_sampler, device, data_size, mu_range=hyper_params["mu_range"], mu_dim=2)
+data, inputs = generate_data(y_sampler, device, data_size, mu_range=hyper_params["mu_range"], mu_dim=hyper_params['mu_dim'])
+
+np.save("train_inputs.npy", inputs.cpu().numpy())
+experiment.log_asset("./train_inputs.npy", overwrite=True)
+os.remove("./train_inputs.npy")
+
 train_fixed_noise = torch.Tensor(sample_noise(data.shape[0], hyper_params['NOISE_DIM'])).to(device)
 metric_calc = Metrics((-50, 50), 100)
-dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=2)
+dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=hyper_params['mu_dim'])
 
 def calculate_validation_metrics(mu_range, epoch, points_size=100, sample_size=2000):
     js = []
     ks = []
-#     for _mu in range(*mu_range, 1):
-#         mu = torch.tensor([float(_mu)] * fixed_noise.shape[0])
-#         y_sampler.make_condition_sample({'mu': mu})
-
-#         x = y_sampler.x_dist.sample(mu.shape).to(device)
-#         mu = mu.to(device)
-
-#         js.append(metric_calc.compute_JS(y_sampler.condition_sample().cpu(),
-#                   generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu()).item())
-#         ks.append(metric_calc.compute_KSStat(y_sampler.condition_sample().cpu().numpy(),
-#                   generator(fixed_noise, torch.stack([mu,x],dim=1)).detach().cpu().numpy()).item())
 
     if (epoch + 1) % 20 == 0:
-        mu = dist.Uniform(*mu_range).sample([points_size, 2])
-        x = y_sampler.x_dist.sample([points_size, 1])
+        mu = dist.Uniform(*mu_range).sample([points_size, hyper_params['mu_dim']])
+        x = y_sampler.x_dist.sample([points_size, hyper_params['x_dim']])
         inputs_mu_x = torch.cat([mu, x], dim=1).to(device)
         for index in range(points_size):
             noise = torch.Tensor(sample_noise(sample_size, hyper_params['NOISE_DIM'])).to(device) 
             sample_inputs = inputs_mu_x[index, :].reshape(1,-1).repeat([sample_size, 1])
             gen_samples = generator(noise, sample_inputs).detach().cpu()
         
-            y_sampler.make_condition_sample({'mu': sample_inputs[:, :2], 'X': sample_inputs[:, 2:3]})
+            y_sampler.make_condition_sample({'mu': sample_inputs[:, :hyper_params["mu_dim"]],
+                                             'X': sample_inputs[:, hyper_params["mu_dim"]:]})
             true_samples = y_sampler.condition_sample().cpu()
             js.append(metric_calc.compute_JS(true_samples, gen_samples).item())
             ks.append(metric_calc.compute_KSStat(true_samples.numpy(), gen_samples.numpy()).item())
@@ -143,10 +144,7 @@ def calculate_validation_metrics(mu_range, epoch, points_size=100, sample_size=2
     train_data_ks = metric_calc.compute_KSStat(data.cpu().numpy(),
                                                generator(train_fixed_noise, inputs).detach().cpu().numpy())
 
-    #experiment.log_metric("average_mu_JS", np.mean(js), step=epoch)
-    experiment.log_metric("train_data_JS", train_data_js, step=epoch)
-    
-    #experiment.log_metric("average_mu_KS", np.mean(ks), step=epoch)
+    experiment.log_metric("train_data_JS", train_data_js, step=epoch)    
     experiment.log_metric("train_data_KS", train_data_ks, step=epoch)    
     for order in range(1, 4):
         moment_of_true = metric_calc.compute_moment(data.cpu(), order)
@@ -155,7 +153,7 @@ def calculate_validation_metrics(mu_range, epoch, points_size=100, sample_size=2
         metric_diff = moment_of_true - moment_of_generated
         
         experiment.log_metric("train_data_diff_order_" + str(order), metric_diff)
-        experiment.log_metric("train_data_gen_order_" + str(order), moment_of_generated)
+        experiment.log_metric("train_data_gen_order_" + str(order), moment_of_generated)       
         
 def run_training():
 
@@ -250,10 +248,16 @@ def run_training():
                     f = dist_plotter.draw_X_samples(x_range)
                     experiment.log_figure("x_samples_{}".format(epoch), f)
                     plt.close(f)
-
-                    f = dist_plotter.draw_mu_2d_samples(hyper_params["mu_range"])
-                    experiment.log_figure("mu_samples_2d_{}".format(epoch), f)
+                    
+                    f, g = dist_plotter.plot_means_diff(hyper_params["mu_range"], x_range)
+                    experiment.log_figure("mean_diff_x_{}".format(epoch), f)
+                    experiment.log_figure("mean_diff_{}".format(epoch), g)
                     plt.close(f)
+                    plt.close(g)
+
+#                     f = dist_plotter.draw_mu_2d_samples(hyper_params["mu_range"])
+#                     experiment.log_figure("mu_samples_2d_{}".format(epoch), f)
+#                     plt.close(f)
                     
                     torch.save({
                         'gen_state_dict': generator.state_dict(),

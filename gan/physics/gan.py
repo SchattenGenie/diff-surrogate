@@ -24,7 +24,6 @@ class Generator(nn.Module):
         """
             Generator takes a vector of noise and produces sample
         """
-        #z = torch.cat([z, params.repeat(z.shape[0], 1)], dim=1)
         z = torch.cat([z, params], dim=1)
         h1 = torch.tanh(self.fc1(z))
         h2 = F.leaky_relu(self.fc2(h1))
@@ -52,7 +51,6 @@ class Discriminator(nn.Module):
         nn.init.constant_(self.fc4.bias, 0.0)
 
     def forward(self, x, params):
-        #x = torch.cat([x, params.repeat(x.shape[0], 1)], dim=1)
         x = torch.cat([x, params], dim=1)
         h1 = torch.tanh(self.fc1(x))
         h2 = F.leaky_relu(self.fc2(h1))
