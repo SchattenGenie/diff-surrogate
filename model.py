@@ -24,7 +24,7 @@ class YModel(object):
         #return x
     
     def std_val(self, x):
-        return 0.1 + torch.sqrt(torch.abs(x) * 0.5) ** 2
+        return 0.1 + torch.abs(x) * 0.5
     
     def sample(self, sample_size=1):
         mu = pyro.sample('mu', self.mu_dist, torch.Size([sample_size]))
