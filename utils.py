@@ -26,7 +26,7 @@ def generate_data(y_sampler, device, n_samples, mu_range=(-5, 5), mu_dim=1, x_di
     y_sampler.make_condition_sample({'mu': mus, 'X':xs})
     
     data = y_sampler.condition_sample().detach().to(device)
-    return data.reshape(-1,1), torch.cat([mus, xs], dim=1)
+    return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
 
 class DistPlotter(object):
