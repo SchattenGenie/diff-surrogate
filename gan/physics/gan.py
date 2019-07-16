@@ -19,6 +19,10 @@ class Generator(nn.Module):
         self.fc3 = nn.Linear(hidden_dim, out_dim)
         nn.init.xavier_normal_(self.fc3.weight)
         nn.init.constant_(self.fc3.bias, 0.0)
+        
+#         self.fc4 = nn.Linear(hidden_dim, hidden_dim)
+#         nn.init.xavier_normal_(self.fc4.weight)
+#         nn.init.constant_(self.fc4.bias, 0.0)        
 
     def forward(self, z, params):
         """
@@ -26,6 +30,7 @@ class Generator(nn.Module):
         """
         z = torch.cat([z, params], dim=1)
         h1 = torch.tanh(self.fc1(z))
+        #h4 = torch.tanh(self.fc4(h1))        
         h2 = F.leaky_relu(self.fc2(h1))
         y_gen = self.fc3(h2)
         return y_gen

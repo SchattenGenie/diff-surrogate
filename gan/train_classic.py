@@ -37,6 +37,7 @@ CUDA_DEVICE = sys.argv[9]
 os.environ['CUDA_VISIBLE_DEVICES'] = str(CUDA_DEVICE)
 os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
 
+
 INST_NOISE_STD = 0.3
 
 
@@ -91,11 +92,11 @@ TASK = hyper_params['TASK']
 experiment.log_asset("./gan.py", overwrite=True)
 experiment.log_asset("../model.py", overwrite=True)
 
-psi_compressed_dim = 2            
+psi_compressed_dim = 1                
 psi_compressor = PsiCompressor(hyper_params['mu_dim'], psi_compressed_dim)
                 
                 
-generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1, psi_compressor=psi_compressor,
+generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1, hidden_dim=128, psi_compressor=psi_compressor,
                       X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
 if TASK == 4:
     discriminator = WSDiscriminator(in_dim=1, psi_compressor=psi_compressor,
@@ -106,7 +107,6 @@ else:
 
 g_optimizer = optim.Adam(generator.parameters(),     lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
 d_optimizer = optim.Adam(discriminator.parameters(), lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
-psi_optimizer = optim.SGD(psi_compressor.parameters(), lr=0.01, momentum=0.9)
 
 if len(sys.argv) == 11:
     generator.load_state_dict(state_dict['gen_state_dict'])
@@ -185,8 +185,8 @@ def run_training():
                         # Sample noise
                         noise = torch.Tensor(sample_noise(len(input_data), hyper_params['NOISE_DIM'])).to(device)
 
-
                         # Do an update
+                        inp_data = input_data.clone()
                         data_gen = generator(noise, inputs_batch)
 
                         if INSTANCE_NOISE:
@@ -196,12 +196,12 @@ def run_training():
                                         sample(data_gen.shape).to(device)
 
                         loss = gan_losses.d_loss(discriminator(data_gen, inputs_batch),
-                                                 discriminator(input_data, inputs_batch))
+                                                discriminator(inp_data, inputs_batch))
                         if TASK == 4:
                             grad_penalty = gan_losses.calc_gradient_penalty(discriminator,
                                                                             data_gen.data,
                                                                             inputs_batch.data,
-                                                                            input_data.data)
+                                                                            inp_data.data)
                             loss += grad_penalty
 
                         if TASK == 5:
@@ -232,10 +232,8 @@ def run_training():
                                         sample(data_gen.shape).to(device)
                         loss = gan_losses.g_loss(discriminator(data_gen, inputs_batch))
                         g_optimizer.zero_grad()
-                        psi_optimizer.zero_grad()
                         loss.backward()
                         g_optimizer.step()
-                        psi_optimizer.step()
                     gen_epoch_loss.append(loss.item())
                 
                 experiment.log_metric("d_loss", np.mean(dis_epoch_loss), step=epoch)
