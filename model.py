@@ -9,13 +9,15 @@ import tqdm
 
 
 class YModel(object):
-    def __init__(self, x_range=(-10,10), init_mu=torch.tensor(0.)):
+    def __init__(self, x_range=(-10, 10), init_mu=torch.tensor(0.)):
         self.mu_dist = dist.Delta(init_mu)
         self.x_dist = dist.Uniform(*x_range)
         #self.x_dist = dist.Delta(torch.tensor(float(0)))
+    
     @staticmethod
     def f(x, a=0, b=1, c=2):
         return a + b * x
+    
     @staticmethod
     def g(x, d=2):
         #return -7 + x ** 2 / 10 + x ** 3 / 100
