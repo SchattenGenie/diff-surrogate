@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 from pyro import distributions as dist
 
 def sample_noise(N, NOISE_DIM):
-    return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
+    #return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
+    return np.random.normal(size=(N,NOISE_DIM)).astype(np.float32)
 
 def iterate_minibatches(X, batchsize, y=None):
     perm = np.random.permutation(X.shape[0])
@@ -90,7 +91,7 @@ class DistPlotter(object):
         for index in range(16):
             plt.subplot(4, 4, index + 1)
             noise = torch.Tensor(sample_noise(self.fixed_noise.shape[0], self.fixed_noise.shape[1])).to(self.device)
-            mu_s = mu[index, :].repeat(self.fixed_noise.shape[0], self.mu_dim).to(self.device)
+            mu_s = mu[index, :].repeat(self.fixed_noise.shape[0], 1).to(self.device)
             x_s = self.y_sampler.x_dist.sample([len(mu_s), self.x_dim]).to(self.device)
             self.y_sampler.make_condition_sample({'mu': mu_s, 'X':x_s})
 
