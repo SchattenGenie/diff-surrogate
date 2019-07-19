@@ -4,11 +4,21 @@ import torch.optim as optim
 import torch
 
 
+class PsiCompressor(nn.Module):
+    def __init__(self, input_param, out_dim):
+        super().__init__()
+        self.fc = nn.Linear(input_param, out_dim)
+        self.out_dim = out_dim
+        
+    def forward(self, psi):
+        return torch.tanh(self.fc(psi))
+
+
 class Generator(nn.Module):
-    def __init__(self, noise_dim, out_dim, hidden_dim=100, input_param=2):
+    def __init__(self, noise_dim, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
         super(Generator, self).__init__()
         
-        self.fc1 = nn.Linear(noise_dim + input_param, hidden_dim)
+        self.fc1 = nn.Linear(noise_dim + X_dim + psi_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc1.weight)
         nn.init.constant_(self.fc1.bias, 0.0)
         
@@ -23,23 +33,28 @@ class Generator(nn.Module):
         self.fc4 = nn.Linear(hidden_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc4.weight)
         nn.init.constant_(self.fc4.bias, 0.0)        
+        
+        # self.pc = psi_compressor
+        self.psi_dim = psi_dim
 
     def forward(self, z, params):
         """
             Generator takes a vector of noise and produces sample
         """
+        # psi_embedding = self.pc(params[:, :self.psi_dim])
+        # z = torch.cat([z, psi_embedding, params[:, self.psi_dim:]], dim=1)
         z = torch.cat([z, params], dim=1)
         h1 = torch.tanh(self.fc1(z))
-        h4 = torch.tanh(self.fc4(h1))        
+        h4 = torch.tanh(self.fc4(h1))
         h2 = F.leaky_relu(self.fc2(h4))
         y_gen = self.fc3(h2)
         return y_gen
     
 class Discriminator(nn.Module):
-    def __init__(self, in_dim, hidden_dim=100, input_param=2):
+    def __init__(self, in_dim, hidden_dim=100, X_dim=1, psi_dim=2):
         super(Discriminator, self).__init__()
         
-        self.fc1 = nn.Linear(in_dim + input_param, hidden_dim)
+        self.fc1 = nn.Linear(in_dim + X_dim + psi_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc1.weight)
         nn.init.constant_(self.fc1.bias, 0.0)
         
@@ -54,9 +69,14 @@ class Discriminator(nn.Module):
         self.fc4 = nn.Linear(hidden_dim, 1)
         nn.init.xavier_normal_(self.fc4.weight)
         nn.init.constant_(self.fc4.bias, 0.0)
+        
+        # self.pc = psi_compressor
+        self.psi_dim = psi_dim
 
     def forward(self, x, params):
         x = torch.cat([x, params], dim=1)
+        # psi_embedding = self.pc(params[:, :self.psi_dim])
+        # x = torch.cat([x, psi_embedding, params[:, self.psi_dim:]], dim=1)
         h1 = torch.tanh(self.fc1(x))
         h2 = F.leaky_relu(self.fc2(h1))
         #h3 = F.leaky_relu(self.fc3(h2))
@@ -64,10 +84,10 @@ class Discriminator(nn.Module):
         return score
     
 class WSDiscriminator(nn.Module):
-    def __init__(self, in_dim, hidden_dim=100, input_param=2):
+    def __init__(self, in_dim, hidden_dim=100, X_dim=1, psi_dim=2):
         super().__init__()
 
-        self.fc1 = nn.Linear(in_dim + input_param, hidden_dim)
+        self.fc1 = nn.Linear(in_dim + X_dim + psi_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc1.weight)
         nn.init.constant_(self.fc1.bias, 0.0)
 
@@ -83,11 +103,16 @@ class WSDiscriminator(nn.Module):
         nn.init.xavier_normal_(self.fc4.weight)
         nn.init.constant_(self.fc4.bias, 0.0)
 
+        # self.pc = psi_compressor
+        self.psi_dim = psi_dim        
+        
     def forward(self, x, params):
         x = torch.cat([x, params], dim=1)
+        # psi_embedding = self.pc(params[:, :self.psi_dim])
+        # x = torch.cat([x, psi_embedding, params[:, self.psi_dim:]], dim=1)
         h1 = torch.tanh(self.fc1(x))
         h2 = F.leaky_relu(self.fc2(h1))
-        #h3 = F.leaky_relu(self.fc3(h2))
+        # h3 = F.leaky_relu(self.fc3(h2))
         score = self.fc4(h2)
         return score    
     
@@ -101,7 +126,7 @@ class GANLosses(object):
         eps = 1e-10
         if self.TASK == 1: 
             loss = torch.log(1 - discrim_output + eps).mean()    
-        elif self.TASK in [2,5]:
+        elif self.TASK in [2, 5]:
             loss = - torch.log(discrim_output + eps).mean()
         elif self.TASK in (3, 4):
             loss = - discrim_output.mean()
