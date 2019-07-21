@@ -12,18 +12,17 @@ class YModel(object):
     def __init__(self, x_range=(-10, 10), init_mu=torch.tensor(0.)):
         self.mu_dist = dist.Delta(init_mu)
         self.x_dist = dist.Uniform(*x_range)
-        #self.x_dist = dist.Delta(torch.tensor(float(0)))
-    
+        # self.x_dist = dist.Delta(torch.tensor(float(0)))
     @staticmethod
     def f(x, a=0, b=1, c=2):
         return a + b * x
     
     @staticmethod
     def g(x, d=2):
-        #return -7 + x ** 2 / 10 + x ** 3 / 100
-        #return d * torch.sin(x)
+        # return -7 + x ** 2 / 10 + x ** 3 / 100
+        # return d * torch.sin(x)
         return torch.sqrt(torch.sum(x ** 2, dim=1, keepdim=True))
-        #return x
+        # return x
     
     def std_val(self, x):
         return 0.1 + torch.abs(x) * 0.5
@@ -41,14 +40,15 @@ class YModel(object):
 
         latent_mu = self.g(mu)
         return pyro.sample('y', dist.Normal(latent_x + latent_mu, self.std_val(latent_x)))
-        #return pyro.sample('y', dist.Normal(latent_x, 1)).float()
-        #return pyro.sample('y', dist.Normal(latent_x, self.std_val(latent_x))).float()
+        # return pyro.sample('y', dist.Normal(latent_x, 1)).float()
+        # return pyro.sample('y', dist.Normal(latent_x, self.std_val(latent_x))).float()
     
     def make_condition_sample(self, data):
         self.condition_sample = poutine.condition(self.sample, data=data)
     
     def condition_sample(self, size=1):
         return self.condition_sample(size)
+
 
 class OptLoss(object):
     def __init__(self):

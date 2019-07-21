@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from pyro import distributions as dist
 
 def sample_noise(N, NOISE_DIM):
-    #return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
-    return np.random.normal(size=(N,NOISE_DIM)).astype(np.float32)
+    # return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
+    return np.random.normal(size=(N, NOISE_DIM)).astype(np.float32)
 
 def iterate_minibatches(X, batchsize, y=None):
     perm = np.random.permutation(X.shape[0])
@@ -19,12 +19,34 @@ def iterate_minibatches(X, batchsize, y=None):
             yield X[perm[start:end]], y[perm[start:end]]
             
 def generate_data(y_sampler, device, n_samples, mu_range=(-5, 5), mu_dim=1, x_dim=1):
-    #mus = torch.empty([n_samples, mu_dim]).uniform_(*mu_range).to(device)
+    # mus = torch.empty([n_samples, mu_dim]).uniform_(*mu_range).to(device)
     mus = torch.randint(*mu_range, [n_samples, mu_dim], dtype=torch.float32).to(device)
     xs = y_sampler.x_dist.sample(torch.Size([n_samples, x_dim])).to(device)
 
     y_sampler.make_condition_sample({'mu': mus, 'X':xs})
     
+    data = y_sampler.condition_sample().detach().to(device)
+    return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
+
+
+def generate_local_data(y_sampler, device, n_samples_per_dim, step, current_psi, x_dim=1, std=0.1):
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * 2 * current_psi.shape[1], x_dim])).to(device)
+
+    mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(device)
+
+    iterator = 0
+    for dim in range(current_psi.shape[1]):
+        for dir_step in [-step, step]:
+            random_mask = torch.torch.randn_like(current_psi)
+            random_mask[0, dim] = 0
+            new_psi = current_psi + random_mask * std
+            new_psi[0, dim] += dir_step
+
+            mus[iterator:
+                iterator + n_samples_per_dim, :] = new_psi.repeat(n_samples_per_dim, 1)
+            iterator += n_samples_per_dim
+
+    y_sampler.make_condition_sample({'mu': mus, 'X': xs})
     data = y_sampler.condition_sample().detach().to(device)
     return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 

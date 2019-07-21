@@ -49,7 +49,7 @@ hyper_params = {
     "num_epochs": 1000,
     "learning_rate": learning_rate,
     "n_d_train": n_d_train,
-    "INST_NOISE_STD": 0.3,
+    "INST_NOISE_STD": 0.1,
     "INSTANCE_NOISE": INSTANCE_NOISE,
     "param_dim": 2,
     "x_dim": 4
@@ -64,6 +64,10 @@ PATH = "./physics_gan.tar"
 
 df = pd.read_csv(os.path.expanduser("~/data/diff_gen_data/physics_data/xz_magnet_opt.csv"), index_col=0)
 df = df.sample(frac=1)
+
+df.hit_x = (df.hit_x - df.hit_x.mean()) / df.hit_x.std()
+df.hit_y = (df.hit_y - df.hit_y.mean()) / df.hit_y.std()
+
 data_columns = ["hit_x", "hit_y", "hit_E"]
 inputs_columns = ["pid", "start_theta", "start_phi", "start_P", "magn_len", "magn_x"]
 data = torch.Tensor(df[data_columns].to_numpy(dtype=np.float32)).to(device)
@@ -76,7 +80,7 @@ if TASK == 4:
     discriminator = WSDiscriminator(in_dim=3, hidden_dim=100,
                                     input_param=hyper_params['param_dim'] + hyper_params['x_dim']).to(device)
 else:
-    discriminator = Discriminator(in_dim=3, hidden_dim=100,
+    discriminator = Discriminator(in_dim=3, hidden_dim=64,
                               input_param=hyper_params['param_dim'] + hyper_params['x_dim']).to(device)
 
 g_optimizer = optim.Adam(generator.parameters(),     lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
@@ -108,7 +112,7 @@ def draw_hitmap(n_samples=100):
         magn_len = torch.empty(size=[1, 1], dtype=torch.float32).uniform_(1, 15).repeat([n_samples, 1])
         magn_x = torch.empty(size=[1, 1], dtype=torch.float32).uniform_(1, 10).repeat([n_samples, 1])
         distr = genearte_plot_data(n_samples, magn_len, magn_x)
-        distr = distr[distr[:, 2] > 1e-5]
+        #distr = distr[distr[:, 2] > 1e-5]
 
         plt.hist2d(distr[:,0], distr[:, 1], bins=50, cmap=my_cmap, cmin=1e-10)
         plt.grid()
@@ -128,11 +132,11 @@ def draw_2d_hitmap(n_samples=2000):
             magn_len = torch.Tensor([i]).repeat([n_samples, 1])
             magn_x = torch.Tensor([j]).repeat([n_samples, 1])
             distr = genearte_plot_data(n_samples, magn_len, magn_x)
-            distr = distr[distr[:, 2] > 1e-5]
+            #distr = distr[distr[:, 2] > 1e-5]
             
             plt.hist2d(distr[:, 0], distr[:, 1],
                        bins=50, cmap=my_cmap, cmin=1e-10,
-                       range=((-3000, 3000), (-3000, 3000)))
+                       range=((-7, 7), (-7, 7)))
             ax.set_yticklabels([])
             ax.set_xticklabels([])
             ax.set_aspect('equal')
@@ -157,7 +161,7 @@ def draw_energy(n_samples=100):
         magn_len = torch.empty(size=[1, 1], dtype=torch.float32).uniform_(1, 15).repeat([n_samples, 1])
         magn_x = torch.empty(size=[1, 1], dtype=torch.float32).uniform_(1, 10).repeat([n_samples, 1])
         distr = genearte_plot_data(n_samples, magn_len, magn_x)
-        distr = distr[distr[:, 2] > 1e-5]
+        #distr = distr[distr[:, 2] > 1e-5]
 
         #plt.hist2d(distr[:,0], distr[:, 1], bins=50, cmap=my_cmap, cmin=1e-10)
         plt.hist(distr[:, 2], bins=50)
