@@ -60,5 +60,7 @@ class OptLoss(object):
     @staticmethod
     def SigmoidLoss(ys: torch.tensor, left_bound, right_bound):
         return -torch.mean(torch.sigmoid(ys - left_bound) - torch.sigmoid(ys - right_bound), dim=1)
-
+    @staticmethod
+    def TanhLoss(ys: torch.tensor, left_bound, right_bound):
+        return -torch.mean(torch.tanh(ys - left_bound) - torch.tanh(ys - right_bound), dim=1)
 

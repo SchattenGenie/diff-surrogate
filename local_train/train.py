@@ -2,7 +2,7 @@ import os
 import torch
 from pyro import distributions as dist
 import torch.optim as optim
-from utils import sample_noise, iterate_minibatches, generate_local_data
+from utils import sample_noise, iterate_minibatches, generate_local_data, generate_local_data_lhs
 import numpy as np
 from gan.metrics import Metrics
 
@@ -29,7 +29,7 @@ class GANTrainingUtils(object):
         if (epoch + 0) % 5 == 0:
             mu = dist.Uniform(*mu_range).sample([points_size])
             x = self.y_sampler.x_dist.sample([points_size, self.hyper_params['x_dim']])
-            print(mu.shape, x.shape)
+
             inputs_mu_x = torch.cat([mu, x], dim=1).to(self.device)
             for index in range(points_size):
                 noise = torch.Tensor(sample_noise(sample_size, self.hyper_params['NOISE_DIM'])).to(self.device)
@@ -65,18 +65,22 @@ class GANTrainingUtils(object):
         # Number of D updates per G update
         # ===========================
         k_d, k_g = self.hyper_params["n_d_train"], 1
-        step = 0.5
-        random_step_std = 1
 
         g_optimizer = optim.Adam(generator.parameters(), lr=self.hyper_params['learning_rate'], betas=(0.5, 0.999))
         d_optimizer = optim.Adam(discriminator.parameters(), lr=self.hyper_params['learning_rate'], betas=(0.5, 0.999))
         gan_losses = self.GANLosses(self.TASK, self.device)
 
-        data, inputs = generate_local_data(self.y_sampler, self.device,
-                                           n_samples_per_dim=self.hyper_params["n_samples_per_dim"],
-                                           step=step, current_psi=
-                                           current_psi, x_dim=1, std=random_step_std)
+#         data, inputs = generate_local_data(self.y_sampler, self.device,
+#                                            n_samples_per_dim=self.hyper_params["n_samples_per_dim"],
+#                                            step=self.hyper_params['grad_step'], current_psi=
+#                                            current_psi, x_dim=1, std=self.hyper_params['random_step_std'])
 
+        data, inputs = generate_local_data_lhs(self.y_sampler, self.device,
+                                               n_samples_per_dim=self.hyper_params["n_samples_per_dim"],
+                                               step=self.hyper_params['grad_step'],
+                                               current_psi=current_psi, x_dim=1,
+                                               n_samples=self.hyper_params["n_lhc_samples"])
+    
         train_fixed_noise = torch.Tensor(sample_noise(data.shape[0], self.hyper_params['NOISE_DIM'])).to(self.device)
 
         for epoch in range(self.hyper_params['num_epochs']):
@@ -143,7 +147,10 @@ class GANTrainingUtils(object):
             self.experiment.log_metric("d_loss", np.mean(dis_epoch_loss), step=total_epoch_counter[0])
             self.experiment.log_metric("g_loss", np.mean(gen_epoch_loss), step=total_epoch_counter[0])
 
-            self.calculate_validation_metrics(data, inputs, train_fixed_noise, generator, (current_psi.view(-1) - step, current_psi.view(-1) + step), total_epoch_counter[0])
+            self.calculate_validation_metrics(data, inputs, train_fixed_noise, generator,
+                                              (current_psi.view(-1) - self.hyper_params['grad_step'],
+                                               current_psi.view(-1) + self.hyper_params['grad_step']),
+                                              total_epoch_counter[0])
             total_epoch_counter[0] += 1
 
             if epoch % 20 == 0:
@@ -181,3 +188,27 @@ class GANTrainingUtils(object):
                     'epoch': epoch
                     }, snapshot_path)
                 self.experiment.log_asset(snapshot_path, overwrite=True)
+                
+    def train_dense(self, net, current_psi, total_epoch_counter):
+        step = self.hyper_params['grad_step']
+        random_step_std = self.hyper_params['random_step_std']
+
+        optimizer = optim.Adam(net.parameters(), lr=self.hyper_params['learning_rate'])
+
+        data, inputs = generate_local_data(self.y_sampler, self.device,
+                                           n_samples_per_dim=self.hyper_params["n_samples_per_dim"],
+                                           step=step, current_psi=
+                                           current_psi, x_dim=1, std=random_step_std)
+
+        for epoch in range(self.hyper_params['num_epochs']):
+            epoch_loss = []        
+            for input_data, inputs_batch in iterate_minibatches(data, self.hyper_params['batch_size'], y=inputs):
+                preds = net(inputs_batch)
+                loss = torch.nn.functional.mse_loss(preds, input_data)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                epoch_loss.append(loss.item())
+
+            self.experiment.log_metric("loss", np.mean(epoch_loss), step=total_epoch_counter[0])
+            total_epoch_counter[0] += 1
