@@ -22,7 +22,7 @@ class InputOptimisation(nn.Module):
         return self.gen(noise, inputs)
 
 
-def find_psi(device, NOISE_DIM, io_model, y_sampler, init_mu, lr = 50., average_size=1000, n_iter=10000, use_true=False):
+def find_psi(device, NOISE_DIM, io_model, y_sampler, init_mu, lr=50., average_size=1000, n_iter=10000, use_true=False):
     mu_optim = init_mu.clone().detach()
     mu_optim = mu_optim.repeat(average_size, 1).to(device)
     mu_optim.requires_grad = True
@@ -38,6 +38,7 @@ def find_psi(device, NOISE_DIM, io_model, y_sampler, init_mu, lr = 50., average_
             data_gen = y_sampler.condition_sample()
         else:
             data_gen = io_model(noise, torch.cat([mu_optim, x], dim=1))
+            #data_gen = io_model(torch.cat([mu_optim, x], dim=1))
         loss = OptLoss.SigmoidLoss(data_gen, 5, 10).mean()
         losses.append(loss.item())
         io_model.zero_grad()

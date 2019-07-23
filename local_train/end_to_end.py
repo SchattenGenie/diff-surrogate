@@ -13,7 +13,7 @@ import seaborn as sns
 from time import time
 
 from model import YModel
-from gan_model import Generator, Discriminator, WSDiscriminator, GANLosses
+from gan_model import Generator, Discriminator, WSDiscriminator, GANLosses,Net
 from utils import sample_noise, iterate_minibatches, generate_data
 from utils import DistPlotter
 from train import GANTrainingUtils
@@ -54,7 +54,10 @@ hyper_params = {
     # "mu_range": (-10, 11),
     "mu_dim": 2,
     "x_dim": 1,
-    "optim_epoch": 1000
+    "optim_epoch": 1000,
+    "grad_step": 2,
+#     "random_step_std": 0.1,
+    "n_lhc_samples": 5
 }
 
 # if len(sys.argv) == 11:
@@ -86,16 +89,18 @@ experiment.add_tags(exp_tags)
 device = torch.device("cuda", 0)
 TASK = hyper_params['TASK']
 experiment.log_asset("./gan_model.py", overwrite=True)
+experiment.log_asset("./optim.py", overwrite=True)
+experiment.log_asset("./train.py", overwrite=True)
 experiment.log_asset("../model.py", overwrite=True)
 
-generator = Generator(hyper_params['NOISE_DIM'], out_dim=1,
-                      X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-if TASK == 4:
-    discriminator = WSDiscriminator(in_dim=1,
-                                    X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-else:
-    discriminator = Discriminator(in_dim=1,
-                                  X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
+# generator = Generator(hyper_params['NOISE_DIM'], out_dim=1,
+#                       X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
+# if TASK == 4:
+#     discriminator = WSDiscriminator(in_dim=1,
+#                                     X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
+# else:
+#     discriminator = Discriminator(in_dim=1,
+#                                   X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
 
 # if len(sys.argv) == 11:
 #     generator.load_state_dict(state_dict['gen_state_dict'])
@@ -104,10 +109,6 @@ else:
 #     d_optimizer.load_state_dict(state_dict['disopt_state_dict'])
 
 y_sampler = YModel()
-
-fixed_noise = torch.Tensor(sample_noise(10000, hyper_params['NOISE_DIM'])).to(device)
-dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=hyper_params['mu_dim'])
-
 gan_training = GANTrainingUtils(GANLosses, TASK, device, hyper_params, experiment, y_sampler, PATH, INSTANCE_NOISE)
 
 
@@ -117,13 +118,20 @@ def end_to_end_training(current_psi):
     try:
         with experiment.train():
             total_epoch_counter = [0]
-            for optim_epoch in range(hyper_params["optim_epoch"]):
+            for optim_epoch in range(hyper_params["optim_epoch"]):         
+                generator = Generator(hyper_params['NOISE_DIM'], out_dim=1,
+                                      X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
+                if TASK == 4:
+                    discriminator = WSDiscriminator(in_dim=1,
+                                                    X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
+                else:
+                    discriminator = Discriminator(in_dim=1,
+                                                  X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)                
                 gan_training.train_gan(generator, discriminator, current_psi, total_epoch_counter)
 
-
-                io_model = InputOptimisation(generator)
+                io_model = InputOptimisation(generator)             
                 psi_vals, losses = find_psi(device, NOISE_DIM, io_model, y_sampler, current_psi,
-                                            lr=50., average_size=1000, n_iter=1, use_true=False)
+                                            lr=5000., average_size=1000, n_iter=1, use_true=False)
 
                 current_psi = torch.Tensor(psi_vals)
                 psi_values.append(psi_vals)
@@ -132,10 +140,25 @@ def end_to_end_training(current_psi):
                 f = make_figures(r_values, np.array(psi_values))
                 experiment.log_figure("psi_dynamic", f, overwrite=True)
                 plt.close(f)
+                
+                n_psi = 2000
+                average_size = 1000
+                fixed_noise = torch.Tensor(sample_noise(n_psi * average_size,
+                                                        hyper_params['NOISE_DIM'])).to(device)
+                               
+                dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=hyper_params['mu_dim'])
+                f, g = dist_plotter.draw_grads_and_losses(current_psi.view(-1),
+                                                          psi_size=n_psi, average_size=average_size,
+                                                          step=hyper_params['grad_step'])
+                torch.cuda.empty_cache()
+                experiment.log_figure("grads_{}".format(optim_epoch), f, overwrite=False)
+                experiment.log_figure("loss_{}".format(optim_epoch), g, overwrite=False)
+                plt.close(f)
+                plt.close(g)
     except KeyboardInterrupt:
         pass
 
 
 if __name__ == "__main__":
-    current_psi = torch.Tensor([0, 0.0001]).reshape(1,-1)
+    current_psi = torch.Tensor([1., -1.]).reshape(1,-1)
     end_to_end_training(current_psi)

@@ -13,6 +13,36 @@ class PsiCompressor(nn.Module):
     def forward(self, psi):
         return torch.tanh(self.fc(psi))
 
+class Net(nn.Module):
+    def __init__(self, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
+        super().__init__()
+        self.fc1 = nn.Linear(X_dim + psi_dim, hidden_dim)
+        nn.init.xavier_normal_(self.fc1.weight)
+        nn.init.constant_(self.fc1.bias, 0.0)
+        
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        nn.init.xavier_normal_(self.fc2.weight)
+        nn.init.constant_(self.fc2.bias, 0.0)
+        
+        self.fc3 = nn.Linear(hidden_dim, out_dim)
+        nn.init.xavier_normal_(self.fc3.weight)
+        nn.init.constant_(self.fc3.bias, 0.0)    
+        
+        self.fc4 = nn.Linear(hidden_dim, hidden_dim)
+        nn.init.xavier_normal_(self.fc4.weight)
+        nn.init.constant_(self.fc4.bias, 0.0)
+        
+    def forward(self, params):
+        """
+            Generator takes a vector of noise and produces sample
+        """
+        # psi_embedding = self.pc(params[:, :self.psi_dim])
+        # z = torch.cat([z, psi_embedding, params[:, self.psi_dim:]], dim=1)
+        h1 = torch.tanh(self.fc1(params))
+        h2 = torch.tanh(self.fc2(h1))
+        h3 = F.leaky_relu(self.fc4(h2))
+        y_gen = self.fc3(h3)
+        return y_gen        
 
 class Generator(nn.Module):
     def __init__(self, noise_dim, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):

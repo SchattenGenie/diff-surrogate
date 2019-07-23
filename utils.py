@@ -3,6 +3,13 @@ from tqdm import trange
 import torch
 import matplotlib.pyplot as plt
 from pyro import distributions as dist
+from model import OptLoss
+from copy import deepcopy
+import lhsmdu
+import matplotlib.patches as patches
+
+my_cmap = plt.cm.jet
+my_cmap.set_under('white')
 
 def sample_noise(N, NOISE_DIM):
     # return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
@@ -30,7 +37,7 @@ def generate_data(y_sampler, device, n_samples, mu_range=(-5, 5), mu_dim=1, x_di
 
 
 def generate_local_data(y_sampler, device, n_samples_per_dim, step, current_psi, x_dim=1, std=0.1):
-    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * 2 * current_psi.shape[1], x_dim])).to(device)
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * 2 * current_psi.shape[1] + n_samples_per_dim, x_dim])).to(device)
 
     mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(device)
 
@@ -46,6 +53,22 @@ def generate_local_data(y_sampler, device, n_samples_per_dim, step, current_psi,
                 iterator + n_samples_per_dim, :] = new_psi.repeat(n_samples_per_dim, 1)
             iterator += n_samples_per_dim
 
+    mus[iterator: iterator + n_samples_per_dim, :] = current_psi.repeat(n_samples_per_dim, 1).clone().detach()
+            
+    y_sampler.make_condition_sample({'mu': mus, 'X': xs})
+    data = y_sampler.condition_sample().detach().to(device)
+    return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
+
+def generate_local_data_lhs(y_sampler, device, n_samples_per_dim, step, current_psi, x_dim=1, n_samples=2):
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * n_samples, x_dim])).to(device)
+
+    mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(device)
+    mus = torch.tensor(lhsmdu.sample(current_psi.shape[1],
+                                     n_samples, 
+                                     randomSeed=np.random.randint(1e5)).T).float().to(device)
+
+    mus = step * (mus * 2 - 1) + current_psi.to(device)
+    mus = mus.repeat(1, n_samples_per_dim).reshape(-1, current_psi.shape[1])
     y_sampler.make_condition_sample({'mu': mus, 'X': xs})
     data = y_sampler.condition_sample().detach().to(device)
     return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
@@ -81,32 +104,7 @@ class DistPlotter(object):
             plt.ylabel("x={}".format(x[index, :].cpu().numpy()), fontsize=15)
             plt.title("mu={}".format(mu[index, :].cpu().numpy()), fontsize=15)            
         return f
-        
-
-#     def draw_mu_samples(self, mu_range, noise_size=1000, n_samples=1000):
-#         f = plt.figure(figsize=(21,16))
-#         mu = dist.Uniform(*mu_range).sample([12, self.mu_dim])
-#         for index in range(12):
-#             plt.subplot(4, 4, index + 1)
-#             y_samples = []
-#             for _iter in range(n_samples):
-#                 mu_s = mu[index, :].repeat(noise_size, 1).to(self.device)
-#                 noise = torch.Tensor(sample_noise(noise_size, self.fixed_noise.shape[1])).to(self.device)
-#                 x_s = self.y_sampler.x_dist.sample([len(mu_s), self.x_dim]).to(self.device)
-#                 y_samples.append(self.generator(noise, torch.cat([mu_s, x_s], dim=1)).mean().item())
-            
-#             mu_s = mu[index, :].repeat(n_samples, 1).to(self.device)
-#             x_s = self.y_sampler.x_dist.sample([len(mu_s), noise_size]).to(self.device)
-#             self.y_sampler.make_condition_sample({'mu': mu_s, 'X':x_s})
-                
-#             plt.hist(self.y_sampler.condition_sample().mean(dim=1).cpu().numpy(), bins=100, density=True, label='true');
-#             plt.hist(y_samples,
-#                      bins=100, color='g', density=True, alpha=0.5, label='gan');
-#             plt.grid()
-#             plt.legend()
-#             plt.title("mu={}".format(mu[index, :].cpu().numpy()), fontsize=15)      
-#         return f
-
+     
     def draw_mu_samples(self, mu_range, noise_size=1000, n_samples=1000):
         f = plt.figure(figsize=(21,16))
         mu = dist.Uniform(*mu_range).sample([16, self.mu_dim])
@@ -187,4 +185,84 @@ class DistPlotter(object):
         plt.xlabel(f"$\mu$", fontsize=19)
         plt.ylabel("means_diff")
         plt.grid();
+        return f, g
+    
+    def draw_grads_and_losses(self, current_psi, psi_size=2000, average_size=1000, step=1):
+        psi_range = (current_psi - 3 * step, current_psi + 3 * step)        
+        
+        psi_grid = dist.Uniform(*psi_range).sample([psi_size]).to(self.device)
+        x = self.y_sampler.x_dist.sample([average_size * psi_size, 1]).to(self.device)
+
+        psi = psi_grid.repeat(1, average_size).view(-1, 2)
+        psi.requires_grad = True
+        self.y_sampler.make_condition_sample({"mu": psi, "X": x})
+
+
+        data_gen = self.y_sampler.condition_sample()
+        true_loss = OptLoss.SigmoidLoss(data_gen, 5, 10).view(-1, average_size).mean(dim=1)
+        true_loss.sum().backward(retain_graph=True)
+        true_grads = psi.grad.view(-1, 1).view(psi_size, average_size, 2).mean(dim=1)
+        true_grads = true_grads.detach().cpu().numpy()
+        psi.grad.zero_()
+
+
+        data_gen = deepcopy(self.generator)(self.fixed_noise, torch.cat([psi, x], dim=1))
+        #data_gen = self.generator(torch.cat([psi, x], dim=1))
+        gan_loss = OptLoss.SigmoidLoss(data_gen, 5, 10).view(-1, average_size).mean(dim=1)
+        gan_loss.sum().backward(retain_graph=False)
+        gan_grads = psi.grad.view(-1, 1).view(psi_size, average_size, 2).mean(dim=1)
+        gan_grads = gan_grads.detach().cpu().numpy()
+        psi.grad.zero_()
+        
+        f = plt.figure(figsize=(16,8))
+
+        plt.subplot(1,2,1)
+        plt.quiver(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
+                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
+                   -true_grads[:, 0], 
+                   -true_grads[:, 1],
+                   np.linalg.norm(true_grads,axis=1),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("True grads", fontsize=15)
+
+        plt.subplot(1,2,2)
+        plt.quiver(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
+                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
+                   -gan_grads[:, 0],
+                   -gan_grads[:, 1],
+                   np.linalg.norm(gan_grads,axis=1),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("GAN grads", fontsize=15)
+        
+        g = plt.figure(figsize=(16,8))
+
+        ax = plt.subplot(1,2,1)
+        plt.scatter(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
+                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
+                   c=true_loss.cpu().detach().numpy(),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("True loss", fontsize=15)
+        rect = patches.Rectangle(current_psi - step, step * 2, step * 2,linewidth=3,edgecolor='black',facecolor='none')
+        ax.add_patch(rect)
+
+        ax = plt.subplot(1,2,2)
+        plt.scatter(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
+                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
+                   c=gan_loss.cpu().detach().numpy(),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("GAN loss", fontsize=15)
+        rect = patches.Rectangle(current_psi - step, step * 2, step * 2,linewidth=3,edgecolor='black',facecolor='none')
+        ax.add_patch(rect)        
         return f, g
