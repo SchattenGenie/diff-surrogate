@@ -206,7 +206,7 @@ class DistPlotter(object):
         psi.grad.zero_()
 
 
-        data_gen = deepcopy(self.generator)(self.fixed_noise, torch.cat([psi, x], dim=1))
+        data_gen = self.generator(self.fixed_noise, torch.cat([psi, x], dim=1))
         #data_gen = self.generator(torch.cat([psi, x], dim=1))
         gan_loss = OptLoss.SigmoidLoss(data_gen, 5, 10).view(-1, average_size).mean(dim=1)
         gan_loss.sum().backward(retain_graph=False)
