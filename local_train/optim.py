@@ -67,10 +67,11 @@ def make_figures(losses, m_vals):
     plt.plot((movingaverage(losses, 50)), c='r')
 
     plt.subplot(1,2,2)
-    for i in range(m_vals.shape[1]):
-        plt.plot(m_vals[:,i], label=i);
+    for i in range(m_vals.shape[2]):
+        plt.plot(m_vals[:, 0, i], label=i)
     plt.grid()
     plt.ylabel("$\mu$", fontsize=19)
     plt.xlabel("iter", fontsize=19)
     plt.legend()
+    plt.title("Norm: {}".format(np.linalg.norm(m_vals[-1, 0, :])))
     return f

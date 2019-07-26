@@ -18,21 +18,24 @@ import seaborn as sns
 from time import time
 
 from model import YModel
-from gan import Generator, Discriminator, WSDiscriminator, GANLosses, PsiCompressor
+#from gan import Generator, Discriminator, WSDiscriminator, GANLosses, PsiCompressor
+from local_train.gan_model import Generator, Discriminator, WSDiscriminator, GANLosses
 from metrics import Metrics
-from utils import sample_noise, iterate_minibatches, generate_data
+from utils import sample_noise, iterate_minibatches, generate_data, generate_local_data_lhs
 from utils import DistPlotter
 
 TASK = int(sys.argv[1])
 NOISE_DIM = int(sys.argv[2])
 exp_tags = sys.argv[3].split("*")
-data_size = int(sys.argv[4])
+#data_size = int(sys.argv[4])
+n_epochs = int(sys.argv[4])
 n_d_train = int(sys.argv[5])
 batch_size = int(sys.argv[6])
 learning_rate = float(sys.argv[7])
 INSTANCE_NOISE = bool(int(sys.argv[8]))
 CUDA_DEVICE = sys.argv[9]
 #snapshot_name = sys.argv[9]
+current_psi = [float(sys.argv[10])] * 10 #map(float, sys.argv[10].split(","))
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(CUDA_DEVICE)
 os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
@@ -40,9 +43,9 @@ os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
 INST_NOISE_STD = 0.3
 
 
-PROJ_NAME = "10d_fit_random"
+PROJ_NAME = "10d_grads"
 #PATH = "./snapshots/" + PROJ_NAME + "_" + snapshot_name + ".tar"
-PATH = os.path.expanduser("~/data/diff_gen_data/data_size/{}".format(data_size))
+PATH = os.path.expanduser("~/data/diff_gen_data/data_size/{}".format(n_epochs))
 if not os.path.exists(os.path.expanduser(PATH)):
     os.mkdir(os.path.expanduser(PATH))
 
@@ -50,36 +53,41 @@ hyper_params = {
     "TASK": TASK,
     "batch_size": batch_size,
     "NOISE_DIM": NOISE_DIM,
-    "num_epochs": 1000,
+    "num_epochs": n_epochs,
     "learning_rate": learning_rate,
-    "data_size": data_size,
+    #"data_size": data_size,
     "n_d_train": n_d_train,
     "INST_NOISE_STD": INST_NOISE_STD,
     "INSTANCE_NOISE": INSTANCE_NOISE,
-    "mu_range": (-10, 11),
     "mu_dim": 10,
-    "x_dim": 1
+    "x_dim": 1,
+    "current_psi": torch.Tensor([*current_psi]).reshape(1, -1),
+    "grad_step": 2,
+    "n_lhc_samples": 20,
+    "n_samples_per_dim": 2000
 }
+hyper_params["mu_range"] = (hyper_params["current_psi"].view(-1) - hyper_params["grad_step"],
+                            hyper_params["current_psi"].view(-1) + hyper_params["grad_step"])
 
-if len(sys.argv) == 11:
-    from comet_ml import API
-    import comet_ml
-    import io
-    comet_api = API()
-    comet_api.get()
-    exp = comet_api.get("shir994/2d-convergence/{}".format(sys.argv[10]))
-    keys = hyper_params.keys()
-    hyper_params = {}
-    for param in exp.parameters:
-        if param["name"] in keys:
-            if param["name"] == "INSTANCE_NOISE":
-                hyper_params[param["name"]] = param["valueMin"] == 'true'
-            else:
-                hyper_params[param["name"]] = eval(param["valueMin"])
-    asset_id = [exp_a['assetId'] for exp_a in exp.asset_list if exp_a['fileName'] == f"{hyper_params['data_size']}_980.tar"][0]
-    params = exp.get_asset(asset_id)
-    state_dict = torch.load(io.BytesIO(params))
-    hyper_params['num_epochs'] = 5000
+# if len(sys.argv) == 11:
+#     from comet_ml import API
+#     import comet_ml
+#     import io
+#     comet_api = API()
+#     comet_api.get()
+#     exp = comet_api.get("shir994/2d-convergence/{}".format(sys.argv[10]))
+#     keys = hyper_params.keys()
+#     hyper_params = {}
+#     for param in exp.parameters:
+#         if param["name"] in keys:
+#             if param["name"] == "INSTANCE_NOISE":
+#                 hyper_params[param["name"]] = param["valueMin"] == 'true'
+#             else:
+#                 hyper_params[param["name"]] = eval(param["valueMin"])
+#     asset_id = [exp_a['assetId'] for exp_a in exp.asset_list if exp_a['fileName'] == f"{hyper_params['data_size']}_980.tar"][0]
+#     params = exp.get_asset(asset_id)
+#     state_dict = torch.load(io.BytesIO(params))
+#     hyper_params['num_epochs'] = 5000
 
 
 experiment = Experiment(project_name=PROJ_NAME, workspace="shir994")
@@ -91,34 +99,37 @@ TASK = hyper_params['TASK']
 experiment.log_asset("./gan.py", overwrite=True)
 experiment.log_asset("../model.py", overwrite=True)
 
-psi_compressed_dim = 2            
-psi_compressor = PsiCompressor(hyper_params['mu_dim'], psi_compressed_dim)
+#psi_compressed_dim = 2
+#psi_compressor = PsiCompressor(hyper_params['mu_dim'], psi_compressed_dim)
                 
                 
-generator = Generator(hyper_params['NOISE_DIM'], out_dim = 1, psi_compressor=psi_compressor,
+generator = Generator(hyper_params['NOISE_DIM'], out_dim=1,
                       X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
 if TASK == 4:
-    discriminator = WSDiscriminator(in_dim=1, psi_compressor=psi_compressor,
+    discriminator = WSDiscriminator(in_dim=1,
                                     X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
 else:
-    discriminator = Discriminator(in_dim=1, psi_compressor=psi_compressor,
+    discriminator = Discriminator(in_dim=1,
                                   X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
 
 g_optimizer = optim.Adam(generator.parameters(),     lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
 d_optimizer = optim.Adam(discriminator.parameters(), lr=hyper_params['learning_rate'], betas=(0.5, 0.999))
-psi_optimizer = optim.SGD(psi_compressor.parameters(), lr=0.01, momentum=0.9)
+#psi_optimizer = optim.SGD(psi_compressor.parameters(), lr=0.01, momentum=0.9)
 
-if len(sys.argv) == 11:
-    generator.load_state_dict(state_dict['gen_state_dict'])
-    discriminator.load_state_dict(state_dict['dis_state_dict'])
-    g_optimizer.load_state_dict(state_dict['genopt_state_dict'])
-    d_optimizer.load_state_dict(state_dict['disopt_state_dict'])
+# if len(sys.argv) == 11:
+#     generator.load_state_dict(state_dict['gen_state_dict'])
+#     discriminator.load_state_dict(state_dict['dis_state_dict'])
+#     g_optimizer.load_state_dict(state_dict['genopt_state_dict'])
+#     d_optimizer.load_state_dict(state_dict['disopt_state_dict'])
     
 
 y_sampler = YModel()
 fixed_noise = torch.Tensor(sample_noise(10000, hyper_params['NOISE_DIM'])).to(device)
-data, inputs = generate_data(y_sampler, device, data_size, mu_range=hyper_params["mu_range"], mu_dim=hyper_params['mu_dim'])
-
+#data, inputs = generate_data(y_sampler, device, data_size, mu_range=hyper_params["mu_range"], mu_dim=hyper_params['mu_dim'])
+data, inputs = generate_local_data_lhs(y_sampler, device,
+                                       hyper_params["n_samples_per_dim"],
+                                       hyper_params["grad_step"],
+                                       hyper_params["current_psi"], x_dim=1, n_samples=hyper_params["n_lhc_samples"])
 np.save("train_inputs.npy", inputs.cpu().numpy())
 experiment.log_asset("./train_inputs.npy", overwrite=True)
 os.remove("./train_inputs.npy")
@@ -131,8 +142,8 @@ def calculate_validation_metrics(mu_range, epoch, points_size=100, sample_size=2
     js = []
     ks = []
 
-    if (epoch + 1) % 20 == 0:
-        mu = dist.Uniform(*mu_range).sample([points_size, hyper_params['mu_dim']])
+    if (epoch) % 20 == 0:
+        mu = dist.Uniform(*mu_range).sample([points_size])
         x = y_sampler.x_dist.sample([points_size, hyper_params['x_dim']])
         inputs_mu_x = torch.cat([mu, x], dim=1).to(device)
         for index in range(points_size):
@@ -232,10 +243,10 @@ def run_training():
                                         sample(data_gen.shape).to(device)
                         loss = gan_losses.g_loss(discriminator(data_gen, inputs_batch))
                         g_optimizer.zero_grad()
-                        psi_optimizer.zero_grad()
+                        #psi_optimizer.zero_grad()
                         loss.backward()
                         g_optimizer.step()
-                        psi_optimizer.step()
+                        #psi_optimizer.step()
                     gen_epoch_loss.append(loss.item())
                 
                 experiment.log_metric("d_loss", np.mean(dis_epoch_loss), step=epoch)
@@ -254,10 +265,10 @@ def run_training():
                     experiment.log_figure("mu_samples_{}".format(epoch), f)
                     plt.close(f)
                     
-                    x_range = (-10,10)
-                    f = dist_plotter.draw_X_samples(x_range)
-                    experiment.log_figure("x_samples_{}".format(epoch), f)
-                    plt.close(f)
+                    # x_range = (-10,10)
+                    # f = dist_plotter.draw_X_samples(x_range)
+                    # experiment.log_figure("x_samples_{}".format(epoch), f)
+                    # plt.close(f)
                     
 #                     f, g = dist_plotter.plot_means_diff(hyper_params["mu_range"], x_range)
 #                     experiment.log_figure("mean_diff_x_{}".format(epoch), f)

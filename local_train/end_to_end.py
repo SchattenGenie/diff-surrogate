@@ -52,12 +52,12 @@ hyper_params = {
     "INST_NOISE_STD": INST_NOISE_STD,
     "INSTANCE_NOISE": INSTANCE_NOISE,
     # "mu_range": (-10, 11),
-    "mu_dim": 2,
+    "mu_dim": 10,
     "x_dim": 1,
     "optim_epoch": 1000,
     "grad_step": 2,
 #     "random_step_std": 0.1,
-    "n_lhc_samples": 5
+    "n_lhc_samples": 20
 }
 
 # if len(sys.argv) == 11:
@@ -141,24 +141,24 @@ def end_to_end_training(current_psi):
                 experiment.log_figure("psi_dynamic", f, overwrite=True)
                 plt.close(f)
                 
-                n_psi = 2000
-                average_size = 1000
-                fixed_noise = torch.Tensor(sample_noise(n_psi * average_size,
-                                                        hyper_params['NOISE_DIM'])).to(device)
+#                 n_psi = 2000
+#                 average_size = 1000
+#                 fixed_noise = torch.Tensor(sample_noise(n_psi * average_size,
+#                                                         hyper_params['NOISE_DIM'])).to(device)
                                
-                dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=hyper_params['mu_dim'])
-                f, g = dist_plotter.draw_grads_and_losses(current_psi.view(-1),
-                                                          psi_size=n_psi, average_size=average_size,
-                                                          step=hyper_params['grad_step'])
-                torch.cuda.empty_cache()
-                experiment.log_figure("grads_{}".format(optim_epoch), f, overwrite=False)
-                experiment.log_figure("loss_{}".format(optim_epoch), g, overwrite=False)
-                plt.close(f)
-                plt.close(g)
+#                 dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=hyper_params['mu_dim'])
+#                 f, g = dist_plotter.draw_grads_and_losses(current_psi.view(-1),
+#                                                           psi_size=n_psi, average_size=average_size,
+#                                                           step=hyper_params['grad_step'])
+#                 torch.cuda.empty_cache()
+#                 experiment.log_figure("grads_{}".format(optim_epoch), f, overwrite=False)
+#                 experiment.log_figure("loss_{}".format(optim_epoch), g, overwrite=False)
+#                 plt.close(f)
+#                 plt.close(g)
     except KeyboardInterrupt:
         pass
 
 
 if __name__ == "__main__":
-    current_psi = torch.Tensor([1., -1.]).reshape(1,-1)
+    current_psi = torch.Tensor([0.] * 10).reshape(1, -1)
     end_to_end_training(current_psi)

@@ -84,9 +84,9 @@ class DistPlotter(object):
         self.x_dim = x_dim
 
     def draw_conditional_samples(self, mu_range):
-        f = plt.figure(figsize=(21,16))
+        f = plt.figure(figsize=(21, 16))
         
-        mu = dist.Uniform(*mu_range).sample([16, self.mu_dim])
+        mu = dist.Uniform(*mu_range).sample([16])
         x = self.y_sampler.x_dist.sample([16, self.x_dim])
         
         for index in range(16):
@@ -107,7 +107,7 @@ class DistPlotter(object):
      
     def draw_mu_samples(self, mu_range, noise_size=1000, n_samples=1000):
         f = plt.figure(figsize=(21,16))
-        mu = dist.Uniform(*mu_range).sample([16, self.mu_dim])
+        mu = dist.Uniform(*mu_range).sample([16])
         for index in range(16):
             plt.subplot(4, 4, index + 1)
             noise = torch.Tensor(sample_noise(self.fixed_noise.shape[0], self.fixed_noise.shape[1])).to(self.device)
@@ -122,8 +122,11 @@ class DistPlotter(object):
             plt.legend()
             plt.title("mu={}".format(mu[index, :].cpu().numpy()), fontsize=15);
         return f
-            
+
+    # raise error since Mu sampling is can be out of training scope
     def draw_X_samples(self, x_range):
+        raise NotImplementedError
+
         f = plt.figure(figsize=(21,16))
         x = dist.Uniform(*x_range).sample([12, self.x_dim])
         for index in range(12):
