@@ -9,7 +9,6 @@ from model import OptLoss
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 class InputOptimisation(nn.Module):
     def __init__(self, generator_model):
         super().__init__()
