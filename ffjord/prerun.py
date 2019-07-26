@@ -7,7 +7,7 @@ import torch.optim as optim
 import torch
 from IPython.display import clear_output
 
-sys.path.append('./ffjord_cond_bias/')
+sys.path.append('./ffjord/')
 import ffjord.lib.utils as utils
 from ffjord.lib.visualize_flow import visualize_transform
 import ffjord.lib.layers.odefunc as odefunc
