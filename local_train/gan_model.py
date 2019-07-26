@@ -13,6 +13,7 @@ class PsiCompressor(nn.Module):
     def forward(self, psi):
         return torch.tanh(self.fc(psi))
 
+
 class Net(nn.Module):
     def __init__(self, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
         super().__init__()
@@ -43,6 +44,7 @@ class Net(nn.Module):
         h3 = F.leaky_relu(self.fc4(h2))
         y_gen = self.fc3(h3)
         return y_gen        
+
 
 class Generator(nn.Module):
     def __init__(self, noise_dim, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):

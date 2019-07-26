@@ -114,7 +114,7 @@ gan_training = GANTrainingUtils(GANLosses, TASK, device, hyper_params, experimen
 
 def end_to_end_training(current_psi):
     r_values = []
-    psi_values = []
+    psi_values = [current_psi.detach().cpu().numpy()]
     try:
         with experiment.train():
             total_epoch_counter = [0]
