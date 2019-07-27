@@ -12,7 +12,7 @@ from gan_model import GANModel
 from optimizer import *
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
-device = torch.device('cpu')
+device = torch.device('cuda:0')
 
 def str_to_class(classname):
     return getattr(sys.modules[__name__], classname)
@@ -51,8 +51,9 @@ def end_to_end_training(epochs: int,
             current_psi=current_psi,
             x_dim=1,  # one left hardcoded parameter
             n_samples=n_samples)
+        print(x.device, condition.device)
         # at each epoch re-initialize and re-fit
-        model = model_cls(**model_config)
+        model = model_cls(**model_config).to(device)
         model.fit(x, condition=condition)
 
         # find new psi

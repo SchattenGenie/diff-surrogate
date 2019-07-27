@@ -11,10 +11,10 @@ import tqdm
 
 
 class YModel(base_model.BaseConditionalGenerationOracle):
-    def __init__(self, x_range=(-10, 10),
-                 init_mu=torch.tensor(0.),
-                 device='cpu'):
-        self.mu_dist = dist.Delta(init_mu)
+    def __init__(self, device,
+                 x_range=(-10, 10),
+                 init_mu=torch.tensor(0.)):
+        self.mu_dist = dist.Delta(init_mu.to(device))
         self.x_dist = dist.Uniform(*x_range)
         self.condition_sample = None
         self._device = device
@@ -40,10 +40,10 @@ class YModel(base_model.BaseConditionalGenerationOracle):
         return 0.1 + torch.abs(x) * 0.5
 
     def sample(self, sample_size=1):
-        mu = pyro.sample('mu', self.mu_dist, torch.Size([sample_size]))
+        mu = pyro.sample('mu', self.mu_dist, torch.Size([sample_size])).to(self.device)
         size = [len(mu)]
-        x = pyro.sample('x', self.x_dist, torch.Size(size))
-        latent_x = pyro.sample('latent_x', dist.Normal(x, 1))
+        x = pyro.sample('x', self.x_dist, torch.Size(size)).to(self.device)
+        latent_x = pyro.sample('latent_x', dist.Normal(x, 1)).to(self.device)
         latent_x = self.f(latent_x)
         latent_mu = self.g(mu)
         return pyro.sample('y', dist.Normal(latent_x + latent_mu, self.std_val(latent_x)))
@@ -51,7 +51,7 @@ class YModel(base_model.BaseConditionalGenerationOracle):
     def generate(self, condition):
         mu, x = condition[:, :2], condition[:, 2:]
 
-        latent_x = pyro.sample('latent_x', dist.Normal(x, 1))
+        latent_x = pyro.sample('latent_x', dist.Normal(x, 1)).to(self.device)
         latent_x = self.f(latent_x)
 
         latent_mu = self.g(mu)
@@ -71,9 +71,9 @@ class YModel(base_model.BaseConditionalGenerationOracle):
 
     def generate_local_data(self, n_samples_per_dim, step, current_psi, x_dim=1, std=0.1):
         xs = self.x_dist.sample(
-            torch.Size([n_samples_per_dim * 2 * current_psi.shape[1] + n_samples_per_dim, x_dim]))  # .to(device)
+            torch.Size([n_samples_per_dim * 2 * current_psi.shape[1] + n_samples_per_dim, x_dim])).to(self.device)
 
-        mus = torch.empty((xs.shape[0], current_psi.shape[1]))  # .to(device)
+        mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(self.device)
 
         iterator = 0
         for dim in range(current_psi.shape[1]):
@@ -90,21 +90,21 @@ class YModel(base_model.BaseConditionalGenerationOracle):
         mus[iterator: iterator + n_samples_per_dim, :] = current_psi.repeat(n_samples_per_dim, 1).clone().detach()
 
         self.make_condition_sample({'mu': mus, 'X': xs})
-        data = self.condition_sample().detach().to(device)
+        data = self.condition_sample().detach().to(self.device)
         return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, x_dim=1, n_samples=2):
         xs = self.x_dist.sample(torch.Size([
             n_samples_per_dim * n_samples,
-            x_dim]))
+            x_dim])).to(self.device)
 
         mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
-                                         randomSeed=np.random.randint(1e5)).T).float().to(current_psi.device)
+                                         randomSeed=np.random.randint(1e5)).T).float().to(self.device)
 
         mus = step * (mus * 2 - 1) + current_psi
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
         self.make_condition_sample({'mu': mus, 'x': xs})
-        data = self.condition_sample().detach().to(current_psi.device)
+        data = self.condition_sample().detach().to(self.device)
         return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
 

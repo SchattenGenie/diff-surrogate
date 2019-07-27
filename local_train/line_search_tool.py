@@ -25,7 +25,7 @@ class OracleWrapper:
         return np.squeeze(self.func(x + alpha * d))
 
     def grad_directional(self, x, d, alpha):
-        return np.squeeze(self.grad(x + alpha * d).dot(d))
+        return np.squeeze(self.grad(x + alpha * d).dot(d.detach().cpu().numpy()))
 
 
 class LineSearchTool(object):

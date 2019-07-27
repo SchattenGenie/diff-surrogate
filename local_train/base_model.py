@@ -65,7 +65,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
             conditions = condition.repeat(num_repetitions, 1)
             conditions = torch.cat([
                 conditions,
-                YModel().x_dist.sample([len(conditions), 1]).to(self.device) # TODO: get rid of YModel here
+                YModel(device=self.device).x_dist.sample([len(conditions), 1]).to(self.device) # TODO: get rid of YModel here
             ], dim=1)
             x = self.generate(conditions)
             loss = OptLoss.SigmoidLoss(x, 5, 10).mean()
@@ -73,7 +73,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         else:
             condition = torch.cat([
                 condition,
-                YModel().x_dist.sample([len(condition), 1]).to(self.device)
+                YModel(device=self.device).x_dist.sample([len(condition), 1]).to(self.device)
             ], dim=1)
             x = self.generate(condition)
             loss = OptLoss.SigmoidLoss(x, 5, 10)
