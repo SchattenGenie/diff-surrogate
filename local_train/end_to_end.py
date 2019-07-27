@@ -1,164 +1,134 @@
 from comet_ml import Experiment
-import os
 import sys
-import math
-sys.path.append("../")
-
+import click
 import torch
 import numpy as np
-
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-from time import time
-
+sys.path.append('../')
+from typing import List, Union
+from utils import generate_local_data_lhs
 from model import YModel
-from gan_model import Generator, Discriminator, WSDiscriminator, GANLosses,Net
-from utils import sample_noise, iterate_minibatches, generate_data
-from utils import DistPlotter
-from train import GANTrainingUtils
-from optim import find_psi, InputOptimisation, make_figures
+from ffjord_model import FFJORDModel
+from gan_model import GANModel
+from optimizer import *
+from logger import SimpleLogger, CometLogger
+from base_model import BaseConditionalGenerationOracle
+device = torch.device('cpu')
 
-TASK = int(sys.argv[1])
-NOISE_DIM = int(sys.argv[2])
-exp_tags = sys.argv[3].split("*")
-n_samples_per_dim = int(sys.argv[4])
-n_d_train = int(sys.argv[5])
-batch_size = int(sys.argv[6])
-learning_rate = float(sys.argv[7])
-INSTANCE_NOISE = bool(int(sys.argv[8]))
-CUDA_DEVICE = sys.argv[9]
-# snapshot_name = sys.argv[9]
-
-os.environ['CUDA_VISIBLE_DEVICES'] = str(CUDA_DEVICE)
-os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
-
-INST_NOISE_STD = 0.3
-
-PROJ_NAME = "end_to_end"
-# PATH = "./snapshots/" + PROJ_NAME + "_" + snapshot_name + ".tar"
-PATH = os.path.expanduser("~/data/diff_gen_data/n_samples_per_dim/{}".format(n_samples_per_dim))
-if not os.path.exists(os.path.expanduser(PATH)):
-    os.mkdir(os.path.expanduser(PATH))
-
-hyper_params = {
-    "TASK": TASK,
-    "batch_size": batch_size,
-    "NOISE_DIM": NOISE_DIM,
-    "num_epochs": 20,
-    "learning_rate": learning_rate,
-    "n_samples_per_dim": n_samples_per_dim,
-    "n_d_train": n_d_train,
-    "INST_NOISE_STD": INST_NOISE_STD,
-    "INSTANCE_NOISE": INSTANCE_NOISE,
-    # "mu_range": (-10, 11),
-    "mu_dim": 2,
-    "x_dim": 1,
-    "optim_epoch": 1000,
-    "grad_step": 2,
-#     "random_step_std": 0.1,
-    "n_lhc_samples": 5
-}
-
-# if len(sys.argv) == 11:
-#     from comet_ml import API
-#     import comet_ml
-#     import io
-#
-#     comet_api = API()
-#     comet_api.get()
-#     exp = comet_api.get("shir994/2d-convergence/{}".format(sys.argv[10]))
-#     keys = hyper_params.keys()
-#     hyper_params = {}
-#     for param in exp.parameters:
-#         if param["name"] in keys:
-#             if param["name"] == "INSTANCE_NOISE":
-#                 hyper_params[param["name"]] = param["valueMin"] == 'true'
-#             else:
-#                 hyper_params[param["name"]] = eval(param["valueMin"])
-#     asset_id = \
-#     [exp_a['assetId'] for exp_a in exp.asset_list if exp_a['fileName'] == f"{hyper_params['data_size']}_980.tar"][0]
-#     params = exp.get_asset(asset_id)
-#     state_dict = torch.load(io.BytesIO(params))
-#     hyper_params['num_epochs'] = 5000
-
-experiment = Experiment(project_name=PROJ_NAME, workspace="shir994")
-experiment.log_parameters(hyper_params)
-experiment.add_tags(exp_tags)
-
-device = torch.device("cuda", 0)
-TASK = hyper_params['TASK']
-experiment.log_asset("./gan_model.py", overwrite=True)
-experiment.log_asset("./optim.py", overwrite=True)
-experiment.log_asset("./train.py", overwrite=True)
-experiment.log_asset("../model.py", overwrite=True)
-
-# generator = Generator(hyper_params['NOISE_DIM'], out_dim=1,
-#                       X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-# if TASK == 4:
-#     discriminator = WSDiscriminator(in_dim=1,
-#                                     X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-# else:
-#     discriminator = Discriminator(in_dim=1,
-#                                   X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-
-# if len(sys.argv) == 11:
-#     generator.load_state_dict(state_dict['gen_state_dict'])
-#     discriminator.load_state_dict(state_dict['dis_state_dict'])
-#     g_optimizer.load_state_dict(state_dict['genopt_state_dict'])
-#     d_optimizer.load_state_dict(state_dict['disopt_state_dict'])
-
-y_sampler = YModel()
-gan_training = GANTrainingUtils(GANLosses, TASK, device, hyper_params, experiment, y_sampler, PATH, INSTANCE_NOISE)
+def str_to_class(classname):
+    return getattr(sys.modules[__name__], classname)
 
 
-def end_to_end_training(current_psi):
-    r_values = []
-    psi_values = [current_psi.detach().cpu().numpy()]
-    try:
-        with experiment.train():
-            total_epoch_counter = [0]
-            for optim_epoch in range(hyper_params["optim_epoch"]):         
-                generator = Generator(hyper_params['NOISE_DIM'], out_dim=1,
-                                      X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-                if TASK == 4:
-                    discriminator = WSDiscriminator(in_dim=1,
-                                                    X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)
-                else:
-                    discriminator = Discriminator(in_dim=1,
-                                                  X_dim=hyper_params['x_dim'], psi_dim=hyper_params['mu_dim']).to(device)                
-                gan_training.train_gan(generator, discriminator, current_psi, total_epoch_counter)
+def end_to_end_training(epochs: int,
+                        model_cls: BaseConditionalGenerationOracle,
+                        optimizer_cls: BaseOptimizer,
+                        logger: BaseLogger,
+                        model_config: dict,
+                        optimizer_config: dict,
+                        n_samples_per_dim: int,
+                        step_data_gen: float,
+                        n_samples: int,
+                        current_psi: Union[List[float], torch.tensor]):
+    """
 
-                io_model = InputOptimisation(generator)             
-                psi_vals, losses = find_psi(device, NOISE_DIM, io_model, y_sampler, current_psi,
-                                            lr=5000., average_size=1000, n_iter=1, use_true=False)
+    :param epochs:
+    :param model_cls:
+    :param optimizer_cls:
+    :param logger:
+    :param model_config:
+    :param optimizer_config:
+    :param n_samples_per_dim:
+    :param step_data_gen:
+    :param n_samples:
+    :param current_psi:
+    :return:
+    """
+    y_sampler = YModel(device=device)
+    for epoch in range(epochs):
+        # generate new data sample
+        x, condition = y_sampler.generate_local_data_lhs(
+            n_samples_per_dim=n_samples_per_dim,
+            step=step_data_gen,
+            current_psi=current_psi,
+            x_dim=1,  # one left hardcoded parameter
+            n_samples=n_samples)
+        # at each epoch re-initialize and re-fit
+        model = model_cls(**model_config)
+        model.fit(x, condition=condition)
 
-                current_psi = torch.Tensor(psi_vals)
-                psi_values.append(psi_vals)
-                r_values.append(losses[0])
+        # find new psi
+        optimizer = optimizer_cls(oracle=model,
+                                  x=current_psi,
+                                  **optimizer_config)
+        current_psi, status, history = optimizer.optimize()
 
-                f = make_figures(r_values, np.array(psi_values))
-                experiment.log_figure("psi_dynamic", f, overwrite=True)
-                plt.close(f)
-                
-                n_psi = 2000
-                average_size = 1000
-                fixed_noise = torch.Tensor(sample_noise(n_psi * average_size,
-                                                        hyper_params['NOISE_DIM'])).to(device)
-                               
-                dist_plotter = DistPlotter(y_sampler, generator, fixed_noise, device, mu_dim=hyper_params['mu_dim'])
-                f, g = dist_plotter.draw_grads_and_losses(current_psi.view(-1),
-                                                          psi_size=n_psi, average_size=average_size,
-                                                          step=hyper_params['grad_step'])
-                torch.cuda.empty_cache()
-                experiment.log_figure("grads_{}".format(optim_epoch), f, overwrite=False)
-                experiment.log_figure("loss_{}".format(optim_epoch), g, overwrite=False)
-                plt.close(f)
-                plt.close(g)
-    except KeyboardInterrupt:
-        pass
+        # logging optimization, i.e. statistics of psi
+        logger.log_optimizer(optimizer)
+        logger.log_oracle(oracle=model, y_sampler=y_sampler, current_psi=current_psi)
+
+    return xs
+
+
+@click.command()
+@click.option('--model', type=str, default='GANModel')
+@click.option('--optimizer', type=str, default='GradientDescentOptimizer')
+@click.option('--logger', type=str, default='CometLogger')
+@click.option('--model_config_file', type=str, default='gan_config')
+@click.option('--optimizer_config_file', type=str, default='optimizer_config')
+@click.option('--project_name', type=str, prompt='Enter project name')
+@click.option('--work_space', type=str, prompt='Enter workspace name')
+@click.option('--tags', type=str, prompt='Enter tags comma seperated')
+@click.option('--epochs', type=int, default=100)
+@click.option('--n_samples', type=int, default=5)
+@click.option('--step_data_gen', type=float, default=0.5)
+@click.option('--n_samples_per_dim', type=int, default=1000)
+@click.option('--init_psi', type=str, default="0., 0.")
+def main(model,
+         optimizer,
+         logger,
+         project_name,
+         work_space,
+         tags,
+         model_config_file,
+         optimizer_config_file,
+         epochs=100,
+         n_samples=5,
+         step_data_gen=0.5,
+         n_samples_per_dim=1000,
+         init_psi="0., 0."
+         ):
+    model_config = getattr(__import__(model_config_file), model_config_file)
+    optimizer_config = getattr(__import__(optimizer_config_file), optimizer_config_file)
+    init_psi = [float(x.strip()) for x in init_psi.split(',')]
+    model_cls = str_to_class(model)
+    optimizer_cls = str_to_class(optimizer)
+
+    experiment = Experiment(project_name=project_name, workspace=work_space)
+    experiment.add_tags([x.strip() for x in tags.split(',')])
+    experiment.log_parameter('model_type', model)
+    experiment.log_parameter('optimizer_type', optimizer)
+    experiment.log_parameters(model_config)  # TODO: add prefix to not mix lr of mode
+    experiment.log_parameters(optimizer_config)  # and lr of optimizer
+    # experiment.log_asset("./gan_model.py", overwrite=True)
+    # experiment.log_asset("./optim.py", overwrite=True)
+    # experiment.log_asset("./train.py", overwrite=True)
+    # experiment.log_asset("../model.py", overwrite=True)
+
+    logger = str_to_class(logger)(experiment)
+
+    end_to_end_training(
+        epochs=epochs,
+        model_cls=model_cls,
+        optimizer_cls=optimizer_cls,
+        logger=logger,
+        model_config=model_config,
+        optimizer_config=optimizer_config,
+        current_psi=torch.tensor(init_psi).float().to(device),
+        n_samples_per_dim=n_samples_per_dim,
+        step_data_gen=step_data_gen,
+        n_samples=n_samples
+    )
 
 
 if __name__ == "__main__":
-    current_psi = torch.Tensor([1., -1.]).reshape(1,-1)
-    end_to_end_training(current_psi)
+    main()
+

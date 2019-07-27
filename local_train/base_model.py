@@ -6,7 +6,6 @@ from torch.autograd import grad
 from hessian import hessian as hessian_calc
 import sys
 sys.path.append("../")
-from model import OptLoss
 
 
 class BaseConditionalGeneratorModel(nn.Module, ABC):
@@ -58,21 +57,31 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
     """
     def func(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
         """
-        Computes the value of function at point x.
+        Computes the value of function with specified condition.
         """
-
+        from model import OptLoss, YModel
         if isinstance(num_repetitions, int):
             assert len(condition.size()) == 1
             conditions = condition.repeat(num_repetitions, 1)
+            conditions = torch.cat([
+                conditions,
+                YModel().x_dist.sample([len(conditions), 1]).to(self.device) # TODO: get rid of YModel here
+            ], dim=1)
             x = self.generate(conditions)
+            loss = OptLoss.SigmoidLoss(x, 5, 10).mean()
+            return loss
         else:
+            condition = torch.cat([
+                condition,
+                YModel().x_dist.sample([len(condition), 1]).to(self.device)
+            ], dim=1)
             x = self.generate(condition)
-        loss = OptLoss.SigmoidLoss(x, 5, 10).mean()
-        return loss
+            loss = OptLoss.SigmoidLoss(x, 5, 10)
+            return loss
 
     def grad(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
         """
-        Computes the gradient at point x.
+        Computes the gradient of function with specified condition.
         If num_repetitions is not None then condition assumed
         to be 1-d tensor, which would be repeated num_repetitions times
         :param condition: torch.Tensor
@@ -85,10 +94,9 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
             assert len(condition.size()) == 1
-            conditions = condition.repeat(num_repetitions, 1)
-            return grad([self.func(conditions)], [condition])[0]
+            return grad([self.func(condition, num_repetitions=num_repetitions)], [condition])[0]
         else:
-            return grad([self.func(condition)], [condition])[0]
+            return grad([self.func(condition).mean()], [condition])[0]
 
     def hessian(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
         """
@@ -103,7 +111,6 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
             assert len(condition.size()) == 1
-            conditions = condition.repeat(num_repetitions, 1)
-            return hessian_calc(self.func(conditions), condition)
+            return hessian_calc(self.func(condition, num_repetitions=num_repetitions), condition)
         else:
-            return hessian_calc(self.func(condition), condition)
+            return hessian_calc(self.func(condition).mean(), condition)

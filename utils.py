@@ -11,9 +11,10 @@ import matplotlib.patches as patches
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
 
+
 def sample_noise(N, NOISE_DIM):
-    # return np.random.uniform(size=(N,NOISE_DIM)).astype(np.float32)
     return np.random.normal(size=(N, NOISE_DIM)).astype(np.float32)
+
 
 def iterate_minibatches(X, batchsize, y=None):
     perm = np.random.permutation(X.shape[0])
@@ -24,22 +25,23 @@ def iterate_minibatches(X, batchsize, y=None):
             yield X[perm[start:end]]
         else:
             yield X[perm[start:end]], y[perm[start:end]]
-            
-def generate_data(y_sampler, device, n_samples, mu_range=(-5, 5), mu_dim=1, x_dim=1):
+
+
+def generate_data(y_sampler, n_samples, mu_range=(-5, 5), mu_dim=1, x_dim=1):
     # mus = torch.empty([n_samples, mu_dim]).uniform_(*mu_range).to(device)
-    mus = torch.randint(*mu_range, [n_samples, mu_dim], dtype=torch.float32).to(device)
-    xs = y_sampler.x_dist.sample(torch.Size([n_samples, x_dim])).to(device)
+    mus = torch.randint(*mu_range, [n_samples, mu_dim], dtype=torch.float32) # .to(device)
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples, x_dim])) # .to(device)
 
     y_sampler.make_condition_sample({'mu': mus, 'X':xs})
     
-    data = y_sampler.condition_sample().detach().to(device)
+    data = y_sampler.condition_sample().detach() # .to(device)
     return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
 
-def generate_local_data(y_sampler, device, n_samples_per_dim, step, current_psi, x_dim=1, std=0.1):
-    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * 2 * current_psi.shape[1] + n_samples_per_dim, x_dim])).to(device)
+def generate_local_data(y_sampler, n_samples_per_dim, step, current_psi, x_dim=1, std=0.1):
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * 2 * current_psi.shape[1] + n_samples_per_dim, x_dim])) # .to(device)
 
-    mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(device)
+    mus = torch.empty((xs.shape[0], current_psi.shape[1])) # .to(device)
 
     iterator = 0
     for dim in range(current_psi.shape[1]):
@@ -59,18 +61,19 @@ def generate_local_data(y_sampler, device, n_samples_per_dim, step, current_psi,
     data = y_sampler.condition_sample().detach().to(device)
     return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
-def generate_local_data_lhs(y_sampler, device, n_samples_per_dim, step, current_psi, x_dim=1, n_samples=2):
-    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * n_samples, x_dim])).to(device)
 
-    mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(device)
-    mus = torch.tensor(lhsmdu.sample(current_psi.shape[1],
+def generate_local_data_lhs(y_sampler, n_samples_per_dim, step, current_psi, x_dim=1, n_samples=2):
+    xs = y_sampler.x_dist.sample(torch.Size([n_samples_per_dim * n_samples, x_dim]))  # .to(device)
+
+    mus = torch.empty((len(xs), len(current_psi)))  # .to(device)
+    mus = torch.tensor(lhsmdu.sample(len(current_psi),
                                      n_samples, 
-                                     randomSeed=np.random.randint(1e5)).T).float().to(device)
+                                     randomSeed=np.random.randint(1e5)).T).float()  # .to(device)
 
-    mus = step * (mus * 2 - 1) + current_psi.to(device)
-    mus = mus.repeat(1, n_samples_per_dim).reshape(-1, current_psi.shape[1])
+    mus = step * (mus * 2 - 1) + current_psi  # .to(device)
+    mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
     y_sampler.make_condition_sample({'mu': mus, 'X': xs})
-    data = y_sampler.condition_sample().detach().to(device)
+    data = y_sampler.condition_sample().detach()  # .to(device)
     return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
 
@@ -84,7 +87,7 @@ class DistPlotter(object):
         self.x_dim = x_dim
 
     def draw_conditional_samples(self, mu_range):
-        f = plt.figure(figsize=(21,16))
+        f = plt.figure(figsize=(21, 16))
         
         mu = dist.Uniform(*mu_range).sample([16, self.mu_dim])
         x = self.y_sampler.x_dist.sample([16, self.x_dim])
@@ -106,7 +109,7 @@ class DistPlotter(object):
         return f
      
     def draw_mu_samples(self, mu_range, noise_size=1000, n_samples=1000):
-        f = plt.figure(figsize=(21,16))
+        f = plt.figure(figsize=(21, 16))
         mu = dist.Uniform(*mu_range).sample([16, self.mu_dim])
         for index in range(16):
             plt.subplot(4, 4, index + 1)
@@ -165,7 +168,7 @@ class DistPlotter(object):
             t_means = []
             g_means = []
             for x in torch.arange(*x_range, 0.5):
-                #plt.subplot(5, 4, index + 1)
+                # plt.subplot(5, 4, index + 1)
                 mu_s = mu.float().reshape(-1,1).repeat(self.fixed_noise.shape[0], 1).to(self.device)
                 noise = torch.Tensor(sample_noise(self.fixed_noise.shape[0], self.fixed_noise.shape[1])).to(self.device)
                 x_s = x.float().reshape(-1,1).repeat(self.fixed_noise.shape[0], 1).to(self.device)
@@ -184,7 +187,7 @@ class DistPlotter(object):
         plt.scatter(np.arange(*mu_range, 1), means_diff)
         plt.xlabel(f"$\mu$", fontsize=19)
         plt.ylabel("means_diff")
-        plt.grid();
+        plt.grid()
         return f, g
     
     def draw_grads_and_losses(self, current_psi, psi_size=2000, average_size=1000, step=1):
@@ -196,7 +199,6 @@ class DistPlotter(object):
         psi = psi_grid.repeat(1, average_size).view(-1, 2)
         psi.requires_grad = True
         self.y_sampler.make_condition_sample({"mu": psi, "X": x})
-
 
         data_gen = self.y_sampler.condition_sample()
         true_loss = OptLoss.SigmoidLoss(data_gen, 5, 10).view(-1, average_size).mean(dim=1)
@@ -218,7 +220,7 @@ class DistPlotter(object):
 
         plt.subplot(1,2,1)
         plt.quiver(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
-                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
+                   psi_grid[:, 1].cpu().detach().cpu().numpy(),
                    -true_grads[:, 0], 
                    -true_grads[:, 1],
                    np.linalg.norm(true_grads,axis=1),
@@ -230,7 +232,7 @@ class DistPlotter(object):
 
         plt.subplot(1,2,2)
         plt.quiver(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
-                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
+                   psi_grid[:, 1].cpu().detach().cpu().numpy(),
                    -gan_grads[:, 0],
                    -gan_grads[:, 1],
                    np.linalg.norm(gan_grads,axis=1),
@@ -240,13 +242,13 @@ class DistPlotter(object):
         plt.ylabel(f"$\psi_2$", fontsize=19)
         plt.title("GAN grads", fontsize=15)
         
-        g = plt.figure(figsize=(16,8))
+        g = plt.figure(figsize=(16, 8))
 
         ax = plt.subplot(1,2,1)
         plt.scatter(psi_grid[:, 0].cpu().detach().cpu().numpy(), 
-                   psi_grid[:,1].cpu().detach().cpu().numpy(), 
-                   c=true_loss.cpu().detach().numpy(),
-                   cmap=my_cmap)
+                    psi_grid[:,1].cpu().detach().cpu().numpy(),
+                    c=true_loss.cpu().detach().numpy(),
+                    cmap=my_cmap)
         plt.colorbar()
         plt.xlabel(f"$\psi_1$", fontsize=19)
         plt.ylabel(f"$\psi_2$", fontsize=19)

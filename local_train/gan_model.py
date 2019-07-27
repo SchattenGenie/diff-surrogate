@@ -1,199 +1,99 @@
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
+from base_model import BaseConditionalGenerationOracle
+from gan_nets import Generator, Discriminator
+from gan_nets import GANLosses
 import torch
+import torch.utils.data as pytorch_data_utils
 
 
-class PsiCompressor(nn.Module):
-    def __init__(self, input_param, out_dim):
-        super().__init__()
-        self.fc = nn.Linear(input_param, out_dim)
-        self.out_dim = out_dim
-        
-    def forward(self, psi):
-        return torch.tanh(self.fc(psi))
+class GANModel(BaseConditionalGenerationOracle):
+    def __init__(self,
+                 noise_dim,
+                 psi_dim,
+                 x_dim,
+                 batch_size=64,
+                 task="KL",
+                 grad_penalty=False,
+                 zero_centered_grad_penalty=False,
+                 instance_noise_std=None,
+                 iters_discriminator=1,
+                 iters_generator=5,
+                 epochs=5,
+                 lr=1e-3,
+                 wasserstein=True):
+        super(BaseConditionalGenerationOracle, self).__init__()
+        self._noise_dim = noise_dim
+        self._psi_dim = psi_dim
+        self._x_dim = x_dim
+        self._epochs = epochs
+        self._lr = lr
+        self._batch_size = batch_size
+        self._grad_penalty = grad_penalty
+        self._zero_centered_grad_penalty = zero_centered_grad_penalty
+        self._instance_noise_std = instance_noise_std
+        self._iters_discriminator = iters_discriminator
+        self._iters_generator = iters_generator
+        self._ganloss = GANLosses(task=task)
+        self._generator = Generator(noise_dim=self._noise_dim,
+                                    out_dim=self._x_dim)
+        self._discriminator = Discriminator(in_dim=self._x_dim,
+                                            wasserstein=wasserstein)
 
+    @staticmethod
+    def instance_noise(data, std):
+        device = data.device
+        return data + torch.distributions.Normal(0, std).sample(data.shape).to(device)
 
-class Net(nn.Module):
-    def __init__(self, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
-        super().__init__()
-        self.fc1 = nn.Linear(X_dim + psi_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc1.weight)
-        nn.init.constant_(self.fc1.bias, 0.0)
-        
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc2.weight)
-        nn.init.constant_(self.fc2.bias, 0.0)
-        
-        self.fc3 = nn.Linear(hidden_dim, out_dim)
-        nn.init.xavier_normal_(self.fc3.weight)
-        nn.init.constant_(self.fc3.bias, 0.0)    
-        
-        self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc4.weight)
-        nn.init.constant_(self.fc4.bias, 0.0)
-        
-    def forward(self, params):
-        """
-            Generator takes a vector of noise and produces sample
-        """
-        # psi_embedding = self.pc(params[:, :self.psi_dim])
-        # z = torch.cat([z, psi_embedding, params[:, self.psi_dim:]], dim=1)
-        h1 = torch.tanh(self.fc1(params))
-        h2 = torch.tanh(self.fc2(h1))
-        h3 = F.leaky_relu(self.fc4(h2))
-        y_gen = self.fc3(h3)
-        return y_gen        
+    def loss(self, x, condition):
+        return self._discriminator(x, condition)
 
+    def fit(self, x, condition):
+        g_optimizer = torch.optim.Adam(self._generator.parameters(), lr=self._lr, betas=(0.5, 0.999))
+        d_optimizer = torch.optim.Adam(self._discriminator.parameters(), lr=self._lr, betas=(0.5, 0.999))
 
-class Generator(nn.Module):
-    def __init__(self, noise_dim, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
-        super(Generator, self).__init__()
-        
-        self.fc1 = nn.Linear(noise_dim + X_dim + psi_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc1.weight)
-        nn.init.constant_(self.fc1.bias, 0.0)
-        
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc2.weight)
-        nn.init.constant_(self.fc2.bias, 0.0)
-        
-        self.fc3 = nn.Linear(hidden_dim, out_dim)
-        nn.init.xavier_normal_(self.fc3.weight)
-        nn.init.constant_(self.fc3.bias, 0.0)
-        
-        self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc4.weight)
-        nn.init.constant_(self.fc4.bias, 0.0)        
-        
-        # self.pc = psi_compressor
-        self.psi_dim = psi_dim
+        dataset = torch.utils.data.TensorDataset(x, condition)
+        dataloader = torch.utils.data.DataLoader(dataset,
+                                                 batch_size=self._batch_size,
+                                                 shuffle=True)
 
-    def forward(self, z, params):
-        """
-            Generator takes a vector of noise and produces sample
-        """
-        # psi_embedding = self.pc(params[:, :self.psi_dim])
-        # z = torch.cat([z, psi_embedding, params[:, self.psi_dim:]], dim=1)
-        z = torch.cat([z, params], dim=1)
-        h1 = torch.tanh(self.fc1(z))
-        h4 = torch.tanh(self.fc4(h1))
-        h2 = F.leaky_relu(self.fc2(h4))
-        y_gen = self.fc3(h2)
-        return y_gen
-    
-class Discriminator(nn.Module):
-    def __init__(self, in_dim, hidden_dim=100, X_dim=1, psi_dim=2):
-        super(Discriminator, self).__init__()
-        
-        self.fc1 = nn.Linear(in_dim + X_dim + psi_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc1.weight)
-        nn.init.constant_(self.fc1.bias, 0.0)
-        
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc2.weight)
-        nn.init.constant_(self.fc2.bias, 0.0)
-        
-        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc3.weight)
-        nn.init.constant_(self.fc3.bias, 0.0)
-        
-        self.fc4 = nn.Linear(hidden_dim, 1)
-        nn.init.xavier_normal_(self.fc4.weight)
-        nn.init.constant_(self.fc4.bias, 0.0)
-        
-        # self.pc = psi_compressor
-        self.psi_dim = psi_dim
+        for epoch in range(self._epochs):
+            for x_batch, cond_batch in dataloader:
+                for _ in range(self._iters_discriminator):
+                    x_gen = self.generate(condition=cond_batch)
+                    if self._instance_noise_std:
+                        x_batch = self.instance_noise(x_batch, self._instance_noise_std)
+                        x_gen = self.instance_noise(x_gen, self._instance_noise_std)
+                    loss = self._ganloss.d_loss(self.loss(x_gen, cond_batch),
+                                                self.loss(x_batch, cond_batch))
+                    if self._grad_penalty:
+                        loss += self._ganloss.calc_gradient_penalty(self._discriminator,
+                                                                    x_gen.data,
+                                                                    x_batch.data,
+                                                                    condition.data)
+                    if self._zero_centered_grad_penalty:
+                        loss -= self._ganloss.calc_zero_centered_GP(self._discriminator,
+                                                                    x_gen.data,
+                                                                    x_batch.data,
+                                                                    condition.data)
 
-    def forward(self, x, params):
-        x = torch.cat([x, params], dim=1)
-        # psi_embedding = self.pc(params[:, :self.psi_dim])
-        # x = torch.cat([x, psi_embedding, params[:, self.psi_dim:]], dim=1)
-        h1 = torch.tanh(self.fc1(x))
-        h2 = F.leaky_relu(self.fc2(h1))
-        #h3 = F.leaky_relu(self.fc3(h2))
-        score = torch.sigmoid(self.fc4(h2))
-        return score
-    
-class WSDiscriminator(nn.Module):
-    def __init__(self, in_dim, hidden_dim=100, X_dim=1, psi_dim=2):
-        super().__init__()
+                    d_optimizer.zero_grad()
+                    loss.backward()
+                    d_optimizer.step()
 
-        self.fc1 = nn.Linear(in_dim + X_dim + psi_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc1.weight)
-        nn.init.constant_(self.fc1.bias, 0.0)
+                for _ in range(self._iters_generator):
+                    x_gen = self.generate(cond_batch)
+                    if self._instance_noise_std:
+                        x_batch = self.instance_noise(x_batch, self._instance_noise_std)
+                    loss = self._ganloss.g_loss(self.loss(x_gen, cond_batch))
+                    g_optimizer.zero_grad()
+                    loss.backward()
+                    g_optimizer.step()
 
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc2.weight)
-        nn.init.constant_(self.fc2.bias, 0.0)
+        return self
 
-        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc3.weight)
-        nn.init.constant_(self.fc3.bias, 0.0)
+    def generate(self, condition):
+        n = len(condition)
+        z = torch.randn(n, self._noise_dim).to(self.device)
+        return self._generator(z, condition)
 
-        self.fc4 = nn.Linear(hidden_dim, 1)
-        nn.init.xavier_normal_(self.fc4.weight)
-        nn.init.constant_(self.fc4.bias, 0.0)
-
-        # self.pc = psi_compressor
-        self.psi_dim = psi_dim        
-        
-    def forward(self, x, params):
-        x = torch.cat([x, params], dim=1)
-        # psi_embedding = self.pc(params[:, :self.psi_dim])
-        # x = torch.cat([x, psi_embedding, params[:, self.psi_dim:]], dim=1)
-        h1 = torch.tanh(self.fc1(x))
-        h2 = F.leaky_relu(self.fc2(h1))
-        # h3 = F.leaky_relu(self.fc3(h2))
-        score = self.fc4(h2)
-        return score    
-    
-    
-class GANLosses(object):
-    def __init__(self, task, device):
-        self.TASK = task
-        self.device = device
-    
-    def g_loss(self, discrim_output):
-        eps = 1e-10
-        if self.TASK == 1: 
-            loss = torch.log(1 - discrim_output + eps).mean()    
-        elif self.TASK in [2, 5]:
-            loss = - torch.log(discrim_output + eps).mean()
-        elif self.TASK in (3, 4):
-            loss = - discrim_output.mean()
-        return loss
-
-    def d_loss(self, discrim_output_gen, discrim_output_real):
-        eps = 1e-10
-        if self.TASK in (1, 2, 5): 
-            loss = - torch.log(discrim_output_real + eps).mean() - torch.log(1 - discrim_output_gen + eps).mean()
-        elif self.TASK in (3, 4):
-            loss = - (discrim_output_real.mean() - discrim_output_gen.mean())
-        return loss
-
-    def calc_gradient_penalty(self, discriminator, data_gen, inputs_batch, inp_data, lambda_reg = .1):
-        alpha = torch.rand(inp_data.shape[0], 1)
-        alpha = alpha.expand(inp_data.size()).to(self.device)
-
-        interpolates = (alpha * inp_data + ((1 - alpha) * data_gen)).to(self.device)
-
-        interpolates.requires_grad = True
-
-        disc_interpolates = discriminator(interpolates, inputs_batch)
-
-        gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
-                                        grad_outputs=torch.ones(disc_interpolates.size()).to(self.device),
-                                        create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * lambda_reg
-        return gradient_penalty
-    
-    def calc_zero_centered_GP(self, discriminator, data_gen, inputs_batch, inp_data, gamma_reg = .1):
-        
-        local_input = inp_data.clone().detach().requires_grad_(True)
-        disc_interpolates = discriminator(local_input, inputs_batch)
-        gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=local_input,
-                                        grad_outputs=torch.ones(disc_interpolates.size()).to(self.device),
-                                        create_graph=True, retain_graph=True, only_inputs=True)[0]
-        return gamma_reg / 2 * (gradients.norm(2, dim=1) ** 2).mean() 
+    def log_density(self, x, condition):
+        return None

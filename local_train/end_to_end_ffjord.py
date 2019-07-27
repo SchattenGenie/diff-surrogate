@@ -223,7 +223,7 @@ experiment.add_tags(exp_tags)
 
 device = torch.device("cuda", 0)
 TASK = hyper_params['TASK']
-experiment.log_asset("./gan_model.py", overwrite=True)
+experiment.log_asset("./gan_nets.py", overwrite=True)
 experiment.log_asset("./optim.py", overwrite=True)
 experiment.log_asset("./train.py", overwrite=True)
 experiment.log_asset("../model.py", overwrite=True)
