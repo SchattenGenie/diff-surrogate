@@ -5,6 +5,7 @@ from numpy.linalg import LinAlgError
 from line_search_tool import LineSearchTool, get_line_search_tool
 from logger import BaseLogger
 from collections import defaultdict
+import scipy
 import matplotlib.pyplot as plt
 import torch
 import time
@@ -79,7 +80,7 @@ class GradientDescentOptimizer(BaseOptimizer):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  lr: float,
-                 line_search_options: dict = None,  # mutable default argument don't do that
+                 line_search_options: dict = None,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._lr = lr
@@ -132,9 +133,17 @@ class NewtonOptimizer(BaseOptimizer):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  lr: float = 1.,
+                 line_search_options: dict = None,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._lr = lr  # in newton method learning rate used to initialize line search tool
+        if not line_search_options:
+            line_search_options = {
+                'alpha_0': self._lr,
+                'c':  self._lr
+            }
+        self._line_search_tool = get_line_search_tool(line_search_options)
+
 
     def _step(self):
         # seems like a bad dependence...
@@ -162,7 +171,7 @@ class NewtonOptimizer(BaseOptimizer):
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
             return SUCCESS
-        if not (torch.isfinite().all() and
+        if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all() and
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
@@ -194,30 +203,60 @@ class LBFGSOptimizer(BaseOptimizer):
                  x: torch.Tensor,
                  lr: float = 1e-1,
                  memory_size: int = 10,
+                 line_search_options: dict = None,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._lr = lr
         self._sy_history = list()
+        self._alpha_k = None
         self._memory_size = memory_size
+        if not line_search_options:
+            line_search_options = {
+                'alpha_0': self._lr,
+                'c':  self._lr
+            }
+        self._line_search_tool = get_line_search_tool(line_search_options)
 
     def _step(self):
-        d_k = d_computation_in_lnfgs(-g_k.copy(), self._sy_history)
         init_time = time.time()
 
         x_k = self._x.clone().detach()
         f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
-        d_k = -self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
-        if len(self._sy_history) > 0:
-            d_k = d_computation_in_lbfgs(-g_k.copy(), sy_history)
-        else:
-            d_k = - g_k.copy()
-        x_k = x_k + d_k * alpha_k
-        g_k_new = oracle.grad(x_k)
-        self._sy_history.append((alpha_k * d_k, g_k_new - g_k))
-        if len(self._sy_history) > self._memory_size:
-            sy_history.pop(0)
+        g_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
 
-        raise NotImplementedError('_step is not implemented.')
+        if len(self._sy_history) > 0:
+            d_k = d_computation_in_lbfgs(-g_k.clone().detach(), self._sy_history)
+        else:
+            d_k = - g_k.clone().detach()
+
+        if self._alpha_k is None:
+            self._alpha_k = self._line_search_tool.line_search(self._oracle,
+                                                               x_k,
+                                                               d_k,
+                                                               previous_alpha=None,
+                                                               num_repetitions=self._num_repetitions)
+        else:
+            self._alpha_k = self._line_search_tool.line_search(self._oracle,
+                                                               x_k,
+                                                               d_k,
+                                                               previous_alpha=2 * self._alpha_k,
+                                                               num_repetitions=self._num_repetitions)
+
+        x_k = x_k + d_k * self._alpha_k
+        self._x = x_k.clone().detach()
+        g_k_new = self._oracle.grad(x_k)
+        self._sy_history.append((self._alpha_k * d_k, g_k_new - g_k))
+        if len(self._sy_history) > self._memory_size:
+            self._sy_history.pop(0)
+
+        super()._post_step(init_time)
+        grad_norm = torch.norm(d_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
 
 
 class ConjugateGradientsOptimizer(BaseOptimizer):
@@ -225,9 +264,57 @@ class ConjugateGradientsOptimizer(BaseOptimizer):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  lr: float = 1e-1,
+                 line_search_options: dict = None,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._lr = lr
+        self._alpha_k = None
+        self._d_k = None
+        if not line_search_options:
+            line_search_options = {
+                'alpha_0': self._lr,
+                'c':  self._lr
+            }
+        self._line_search_tool = get_line_search_tool(line_search_options)
 
     def _step(self):
-        raise NotImplementedError('_step is not implemented.')
+        init_time = time.time()
+
+        x_k = self._x.clone().detach()
+        f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
+        g_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
+        if self._d_k is None:
+            self._d_k = -g_k.clone().detach()
+
+        norm_squared = g_k.pow(2).sum()
+
+        if self._alpha_k is None:
+            self._alpha_k = self._line_search_tool.line_search(self._oracle,
+                                                               x_k,
+                                                               self._d_k,
+                                                               previous_alpha=None,
+                                                               num_repetitions=self._num_repetitions)
+        else:
+            self._alpha_k = self._line_search_tool.line_search(self._oracle,
+                                                               x_k,
+                                                               self._d_k,
+                                                               previous_alpha=2 * self._alpha_k,
+                                                               num_repetitions=self._num_repetitions)
+        # TODO: dirty hack, what to do when line_search_tool is not converged?
+        if self._alpha_k is None:
+            self._alpha_k = self._lr
+
+        x_k = x_k + self._d_k * self._alpha_k
+        g_k_next = self._oracle.grad(x_k)
+        beta_k = g_k_next.dot((g_k_next - g_k)) / norm_squared
+        self._d_k = -g_k_next + beta_k * self._d_k
+        self._x = x_k.clone().detach()
+
+        super()._post_step(init_time)
+        grad_norm = torch.norm(g_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all() and
+                torch.isfinite(self._d_k).all()):
+            return COMP_ERROR

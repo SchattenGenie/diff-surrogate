@@ -5,12 +5,13 @@ from torch import nn
 from torch.autograd import grad
 from hessian import hessian as hessian_calc
 import sys
-sys.path.append("../")
 
 
 class BaseConditionalGeneratorModel(nn.Module, ABC):
     """
     Base class for implementation of conditional generation model.
+    In our case condition is concatenation of psi and x,
+    i.e. condition = torch.cat([psi, x], dim=1)
     """
 
     @property
@@ -23,16 +24,19 @@ class BaseConditionalGeneratorModel(nn.Module, ABC):
         return next(self.parameters()).device
 
     @abstractmethod
-    def fit(self, x, condition):
+    def fit(self, y, condition):
         """
         Computes the value of function at point x.
+        :param y: target variable
+        :param condition: torch.Tensor
+            Concatenation of [psi, x]
         """
         raise NotImplementedError('fit is not implemented.')
 
     @abstractmethod
-    def loss(self, x, condition):
+    def loss(self, y, condition):
         """
-        Computes the value of function at point x.
+        Computes model loss for given y and condition.
         """
         raise NotImplementedError('loss is not implemented.')
 
@@ -44,9 +48,9 @@ class BaseConditionalGeneratorModel(nn.Module, ABC):
         raise NotImplementedError('predict is not implemented.')
 
     @abstractmethod
-    def log_density(self, x, condition):
+    def log_density(self, y, condition):
         """
-        Computes log density for given conditions and x
+        Computes log density for given conditions and y
         """
         raise NotImplementedError('log_density is not implemented.')
 
@@ -55,28 +59,41 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
     """
     Base class for implementation of loss oracle.
     """
+    def __init__(self, y_model):
+        super(BaseConditionalGenerationOracle, self).__init__()
+        self.__y_model = y_model
+
+    @property
+    def _y_model(self):
+        return self.__y_model
+
     def func(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
         """
         Computes the value of function with specified condition.
+        :param condition: torch.Tensor
+            condition of models, i.e. psi
+            # TODO: rename condition -> psi?
+        :param num_repetitions:
+        :return:
         """
-        from model import OptLoss, YModel
+        condition = condition.to(self.device)
         if isinstance(num_repetitions, int):
             assert len(condition.size()) == 1
             conditions = condition.repeat(num_repetitions, 1)
             conditions = torch.cat([
                 conditions,
-                YModel(device=self.device).x_dist.sample([len(conditions), 1]).to(self.device) # TODO: get rid of YModel here
+                self._y_model.sample_x(len(conditions)).to(self.device)
             ], dim=1)
-            x = self.generate(conditions)
-            loss = OptLoss.SigmoidLoss(x, 5, 10).mean()
+            y = self.generate(conditions)
+            loss = self._y_model.loss(y=y).mean()
             return loss
         else:
             condition = torch.cat([
                 condition,
-                YModel(device=self.device).x_dist.sample([len(condition), 1]).to(self.device)
+                self._y_model.sample_x(len(condition)).to(self.device)
             ], dim=1)
-            x = self.generate(condition)
-            loss = OptLoss.SigmoidLoss(x, 5, 10)
+            y = self.generate(condition)
+            loss = self._y_model.loss(y=y)
             return loss
 
     def grad(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
@@ -90,7 +107,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         :return: torch.Tensor
             1D torch tensor
         """
-        condition = condition.detach().clone()
+        condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
             assert len(condition.size()) == 1
@@ -107,7 +124,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         :return: torch.Tensor
             2D torch tensor with second derivatives
         """
-        condition = condition.detach().clone()
+        condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
             assert len(condition.size()) == 1

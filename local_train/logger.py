@@ -8,6 +8,7 @@ import sys
 sys.path.append('../')
 from utils import generate_local_data_lhs
 from model import YModel
+import time
 
 
 # https://scipy-cookbook.readthedocs.io/items/SignalSmooth.html
@@ -39,7 +40,6 @@ def smooth(x, window_len=11, window='hanning'):
     numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
     scipy.signal.lfilter
 
-    TODO: the window parameter could be the window itself if an array instead of a string
     NOTE: length(output) != length(input), to correct this: return y[(window_len/2-1):-(window_len/2)] instead of just y
     """
     window_len = min(window_len, len(x) - 1)
@@ -70,6 +70,8 @@ class BaseLogger(ABC):
     def __init__(self):
         self._optimizer_logs = defaultdict(list)
         self._oracle_logs = defaultdict(list)
+        self._perfomance_logs = defaultdict(list)
+        self._time = time.time()
 
     @abstractmethod
     def log_optimizer(self, optimizer):
@@ -107,6 +109,14 @@ class BaseLogger(ABC):
 
         return losses_dist, grads_dist
 
+    @abstractmethod
+    def log_performance(self, y_sampler, current_psi):
+        self._perfomance_logs['time'].append(time.time() - self._time)
+        self._time = time.time()
+        print(current_psi)
+        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=5000))
+        self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
+        self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000))
 
 class SimpleLogger(BaseLogger):
     def __init__(self):
@@ -161,6 +171,9 @@ class SimpleLogger(BaseLogger):
 
         return figure
 
+    def log_performance(self, y_sampler, current_psi):
+        super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
+
 
 class CometLogger(SimpleLogger):
     def __init__(self, experiment):
@@ -174,5 +187,17 @@ class CometLogger(SimpleLogger):
     def log_oracle(self, oracle, y_sampler, current_psi):
         figure = super().log_oracle(oracle, y_sampler, current_psi)
         self._experiment.log_figure("Oracle state", figure, overwrite=True)
+
+    def log_performance(self, y_sampler, current_psi):
+        super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
+        self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1])
+        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1])
+        psis = self._perfomance_logs['psi'][-1]
+        for i, psi in enumerate(psis):
+            self._experiment.log_metric('Psi_{}'.format(i), psi)
+
+        psi_grad = self._perfomance_logs['psi_grad'][-1]
+        self._experiment.log_metric('Psi grad norm', psi_grad.norm().item())
+
 
 
