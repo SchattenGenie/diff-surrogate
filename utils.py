@@ -189,7 +189,8 @@ class DistPlotter(object):
         plt.ylabel("means_diff")
         plt.grid();
         return f, g
-    
+
+    # TODO fix dimension 2 to arbitrary
     def draw_grads_and_losses(self, current_psi, psi_size=2000, average_size=1000, step=1):
         psi_range = (current_psi - 3 * step, current_psi + 3 * step)        
         
@@ -209,7 +210,7 @@ class DistPlotter(object):
         psi.grad.zero_()
 
 
-        data_gen = self.generator(self.fixed_noise, torch.cat([psi, x], dim=1))
+        data_gen = deepcopy(self.generator)(self.fixed_noise, torch.cat([psi, x], dim=1))
         #data_gen = self.generator(torch.cat([psi, x], dim=1))
         gan_loss = OptLoss.SigmoidLoss(data_gen, 5, 10).view(-1, average_size).mean(dim=1)
         gan_loss.sum().backward(retain_graph=False)
