@@ -41,9 +41,11 @@ class GANModel(BaseConditionalGenerationOracle):
         self._iters_generator = iters_generator
         self._ganloss = GANLosses(task=task)
         self._generator = Generator(noise_dim=self._noise_dim,
-                                    out_dim=self._y_dim)
+                                    out_dim=self._y_dim,
+                                    psi_dim=self._psi_dim)
         self._discriminator = Discriminator(in_dim=self._y_dim,
-                                            wasserstein=wasserstein)
+                                            wasserstein=wasserstein,
+                                            psi_dim=self._psi_dim)
         self.logger = logger
 
     @staticmethod
