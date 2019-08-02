@@ -5,6 +5,7 @@ from pyro import distributions as dist
 from local_train.base_model import BaseConditionalGenerationOracle
 from pyro import poutine
 import matplotlib.pyplot as plt
+from pyDOE import lhs
 import seaborn as sns
 import lhsmdu
 import tqdm
@@ -15,10 +16,12 @@ class YModel(BaseConditionalGenerationOracle):
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
                  loss=lambda y: OptLoss.SigmoidLoss(y, 5, 10)):
-        super(YModel, self).__init__(None)
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
         self._psi_dist = dist.Delta(psi_init.to(device))
         self._x_dist = dist.Uniform(*x_range)
-        self._psi_dim = len(psi_init)  # TODO: explicitly set psi_dim ?
+        self._psi_dim = len(psi_init)
         self._device = device
         self.loss = loss
 
@@ -108,9 +111,9 @@ class YModel(BaseConditionalGenerationOracle):
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
         xs = self.sample_x(n_samples_per_dim * n_samples)
 
-        mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
-                                         randomSeed=np.random.randint(1e5)).T).float().to(self.device)
-
+        # mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
+        #                                  randomSeed=np.random.randint(1e5)).T).float().to(self.device)
+        mus =  torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
         mus = step * (mus * 2 - 1) + current_psi
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
         self.make_condition_sample({'mu': mus, 'x': xs})
