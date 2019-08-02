@@ -22,7 +22,7 @@ class GANModel(BaseConditionalGenerationOracle):
                  zero_centered_grad_penalty: bool = False,
                  instance_noise_std: float = None,
                  logger=None):
-        super(GANModel, self).__init__(y_model=y_model)
+        super(GANModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         if task == 'WASSERSTEIN':
             wasserstein = True
         else:
@@ -102,7 +102,8 @@ class GANModel(BaseConditionalGenerationOracle):
                     g_optimizer.step()
                 gen_epoch_loss.append(loss.item())
 
-            self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
+            if self.logger:
+                self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
 
         return self
 

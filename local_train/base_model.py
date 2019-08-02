@@ -59,9 +59,12 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
     """
     Base class for implementation of loss oracle.
     """
-    def __init__(self, y_model):
+    def __init__(self, y_model, psi_dim, x_dim, y_dim):
         super(BaseConditionalGenerationOracle, self).__init__()
         self.__y_model = y_model
+        self._psi_dim = psi_dim
+        self._x_dim = x_dim
+        self._y_dim = y_dim
 
     @property
     def _y_model(self):
