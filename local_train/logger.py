@@ -1,13 +1,17 @@
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
 from collections import defaultdict
+from sklearn.metrics import auc
 from scipy.spatial.distance import cosine
+from prd_score import compute_prd_from_embedding
+import lhsmdu
 import numpy as np
 import torch
 import sys
 sys.path.append('../')
 from utils import generate_local_data_lhs
 from model import YModel
+from pyDOE import lhs
 import time
 
 
@@ -82,33 +86,117 @@ class BaseLogger(ABC):
         self._optimizer_logs['time'].extend(history['time'])
         return None
 
+    @staticmethod
+    def calc_grad_metric_in_point(oracle, y_sampler, psi, num_repetitions):
+        grad_true = y_sampler.grad(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
+        grad_fake = oracle.grad(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
+        return cosine(grad_true, grad_fake)
+
+    @staticmethod
+    def calc_func_metric_in_point(oracle, y_sampler, psi, num_repetitions):
+        y_true = y_sampler.func(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
+        y_fake = oracle.func(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
+        return np.abs((y_true - y_fake) / y_true)
+
+    @staticmethod
+    def calc_hessian_metric_in_point(oracle, y_sampler, psi, num_repetitions):
+        hessian_true = y_sampler.hessian(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
+        hessian_fake = oracle.hessian(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
+        eigvecs_true, eigvals_true, _ = np.linalg.svd(hessian_true)
+        eigvecs_fake, eigvals_fake, _ = np.linalg.svd(hessian_fake)
+        cosine_distane_hessian = []
+        for i in range(eigvecs_true.shape[1]):
+            cosine_distane_hessian.append(
+                cosine(eigvecs_true[:, i], eigvecs_fake[:, i])
+            )
+        return np.abs((eigvals_true - eigvals_fake) / eigvals_true).tolist(), cosine_distane_hessian
+
     @abstractmethod
-    def log_oracle(self, oracle, y_sampler, current_psi):
-        # TODO: somehow refactor
-        # because its very nasty
-        psi_dim = current_psi.shape[0] # y_sampler._psi_dim
+    def log_oracle(self, oracle, y_sampler,
+                   current_psi,
+                   step_data_gen,
+                   scale_step=2,
+                   num_samples=1000,
+                   num_repetitions=2000):
+        """
+
+        :param oracle:
+        :param y_sampler:
+        :param current_psi:
+        :param step_data_gen:
+        :param num_samples:
+        :param scale_step:
+        :return:
+            dict of:
+                relative difference of values of loss function
+                cosine distance of gradients inside of training region
+                cosine distance of gradients outside of training region
+                relative difference of eigen values of gessian inside of training region
+                cosine similarity of eigen vectors of gessina outside of training region
+                PRD score of generated samples inside of training region
+                PRD score of generated samples outside of training region
+        """
+        metrics = defaultdict(list)
+        psi_dim = current_psi.shape[0]  # y_sampler._psi_dim
+        psis = torch.tensor(lhs(len(current_psi), num_samples)).float().to(current_psi.device)
+        psis = scale_step * step_data_gen * (psis * 2 - 1) + current_psi.view(1, -1)
+        for i, psi in enumerate(psis):
+            if (psi - current_psi).norm().item() < step_data_gen:
+                metrics["grad_metric_inside"].append(
+                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                                                   psi=psi, num_repetitions=num_repetitions)
+                )
+                metrics["func_metric_inside"].append(
+                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                                                   psi=psi, num_repetitions=num_repetitions)
+                )
+                eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                                                   psi=psi, num_repetitions=num_repetitions)
+                metrics["eigenvalues_metric_inside"].extend(eigenvalues_distances_hess)
+                metrics["eigenvectrors_metric_inside"].extend(eigenvectors_distanes_hess)
+            else:
+                metrics["grad_metric_outside"].append(
+                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                                                   psi=psi, num_repetitions=num_repetitions)
+                )
+                metrics["func_metric_outside"].append(
+                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                                                   psi=psi, num_repetitions=num_repetitions)
+                )
+                eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                                                   psi=psi, num_repetitions=num_repetitions)
+                metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
+                metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
+
         data, conditions = y_sampler.generate_local_data_lhs(
-            n_samples_per_dim=3000,
-            step=2,
+            n_samples_per_dim=100,
+            step=step_data_gen,
             current_psi=current_psi,
-            n_samples=30
+            n_samples=100
         )
-        # TODO: even more nasty things
-        losses_oracle = oracle.func(conditions[:, :psi_dim]).detach().cpu().numpy()
-        grads_oracle = oracle.grad(conditions[:, :psi_dim]).detach().cpu().numpy()
-        losses_real = y_sampler.func(conditions).detach().cpu().numpy()
-        grads_real = y_sampler.grad(conditions).detach().cpu().numpy()[:, :psi_dim]
+        data_real = torch.cat([data, conditions], dim=1).detach().cpu().numpy()
+        data_fake = oracle.generate(conditions)
+        data_fake = torch.cat([data_fake, conditions], dim=1).detach().cpu().numpy()
+        print(data_fake.shape, data_real.shape)
+        print("PRD inside")
+        precision_inside, recall_inside = compute_prd_from_embedding(data_real, data_fake)
+        metrics["precision_inside"].extend(precision_inside.tolist())
+        metrics["recall_inside"].extend(recall_inside.tolist())
 
-        conditions = conditions.detach().cpu().numpy()
-        unique_conditions = np.unique(conditions[:, :psi_dim], axis=0)
-        losses_dist = []
-        grads_dist = []
-        for condition in unique_conditions:
-            mask = (conditions[:, :psi_dim] == condition).all(axis=1)
-            losses_dist.append(losses_oracle[mask].mean() - losses_real[mask].mean())
-            grads_dist.append(cosine(grads_oracle[mask].mean(axis=0), grads_real[mask].mean(axis=0)))
-
-        return losses_dist, grads_dist
+        data, conditions = y_sampler.generate_local_data_lhs(
+            n_samples_per_dim=100,
+            step=scale_step * step_data_gen,
+            current_psi=current_psi,
+            n_samples=100
+        )
+        data_real = torch.cat([data, conditions], dim=1).detach().cpu().numpy()
+        data_fake = oracle.generate(conditions)
+        data_fake = torch.cat([data_fake, conditions], dim=1).detach().cpu().numpy()
+        print("PRD outside")
+        precision_outside, recall_outside = compute_prd_from_embedding(data_real, data_fake)
+        metrics["precision_outside"].extend(precision_outside.tolist())
+        metrics["recall_outside"].extend(recall_outside.tolist())
+        return metrics
 
     @abstractmethod
     def log_performance(self, y_sampler, current_psi):
@@ -159,19 +247,59 @@ class SimpleLogger(BaseLogger):
         figure.legend()
         return figure
 
-    def log_oracle(self, oracle, y_sampler, current_psi):
-        losses_dist, grads_dist = super().log_oracle(oracle, y_sampler, current_psi)
+    def log_oracle(self, oracle, y_sampler,
+                   current_psi,
+                   step_data_gen,
+                   scale_step=2,
+                   num_samples=1000,
+                   num_repetitions=2000):
+        metrics = super().log_oracle(oracle=oracle, y_sampler=y_sampler,
+                                    current_psi=current_psi, step_data_gen=step_data_gen,
+                                    scale_step=scale_step, num_samples=num_samples,
+                                    num_repetitions=num_repetitions)
 
-        figure, axs = plt.subplots(1, 2, figsize=(18, 8))
-        axs[0].hist(losses_dist, bins=30, density=True)
-        axs[0].grid()
-        axs[0].set_ylabel("Loss dist", fontsize=19)
+        figure, axs = plt.subplots(4, 2, figsize=(18, 8 * 4), dpi=150)
+        axs[0][0].hist(metrics["func_metric_inside"], bins=50, density=True)
+        axs[0][0].grid()
+        axs[0][0].set_ylabel("Loss relative error inside", fontsize=19)
 
-        axs[1].hist(grads_dist, bins=30, density=True)
-        axs[1].grid()
-        axs[1].set_ylabel("Grads cosine similarity", fontsize=19)
+        axs[0][1].hist(metrics["func_metric_outside"], bins=50, density=True)
+        axs[0][1].grid()
+        axs[0][1].set_ylabel("Loss relative error inside", fontsize=19)
 
-        return figure
+        axs[1][0].hist(metrics["grad_metric_inside"], bins=50, density=True)
+        axs[1][0].grid()
+        axs[1][0].set_ylabel("Cosine distance of gradients inside", fontsize=19)
+
+        axs[1][1].hist(metrics["grad_metric_outside"], bins=50, density=True)
+        axs[1][1].grid()
+        axs[1][1].set_ylabel("Cosine distance of gradients inside", fontsize=19)
+
+        axs[2][0].hist(metrics["eigenvalues_metric_inside"], bins=50, density=True)
+        axs[2][0].grid()
+        axs[2][0].set_ylabel("Hessian eigenvalues relative error inside", fontsize=19)
+
+        axs[2][1].hist(metrics["eigenvalues_metric_outside"], bins=50, density=True)
+        axs[2][1].grid()
+        axs[2][1].set_ylabel("Hessian eigenvalues relative error inside", fontsize=19)
+
+        axs[3][0].hist(metrics["eigenvectrors_metric_inside"], bins=50, density=True)
+        axs[3][0].grid()
+        axs[3][0].set_ylabel("Cosine distance of hessian eigenvectors inside", fontsize=19)
+
+        axs[3][0].hist(metrics["eigenvectrors_metric_outside"], bins=50, density=True)
+        axs[3][0].grid()
+        axs[3][0].set_ylabel("Cosine distance of hessian eigenvectors outside", fontsize=19)
+
+        axs[4][0].step(metrics["precision_inside"], metrics["recall_inside"])
+        axs[4][0].grid()
+        axs[4][0].set_ylabel("PRD score inside", fontsize=19)
+
+        axs[4][1].step(metrics["precision_outside"], metrics["recall_outside"])
+        axs[4][1].grid()
+        axs[4][1].set_ylabel("PRD score inside", fontsize=19)
+
+        return metrics, figure
 
     def log_performance(self, y_sampler, current_psi):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
@@ -181,26 +309,38 @@ class CometLogger(SimpleLogger):
     def __init__(self, experiment):
         super(CometLogger, self).__init__()
         self._experiment = experiment
+        self._epoch = 0
 
     def log_optimizer(self, optimizer):
         figure = super().log_optimizer(optimizer)
         self._experiment.log_figure("Optimization dynamic", figure, overwrite=True)
 
-    def log_oracle(self, oracle, y_sampler, current_psi):
-        figure = super().log_oracle(oracle, y_sampler, current_psi)
-        self._experiment.log_figure("Oracle state", figure, overwrite=True)
+    def log_oracle(self, oracle, y_sampler,
+                   current_psi,
+                   step_data_gen,
+                   scale_step=2,
+                   num_samples=1000,
+                   num_repetitions=2000):
+        metrics, figure = super().log_oracle(oracle=oracle, y_sampler=y_sampler,
+                                             current_psi=current_psi, step_data_gen=step_data_gen,
+                                             scale_step=scale_step, num_samples=num_samples,
+                                             num_repetitions=num_repetitions)
 
-    def log_performance(self, y_sampler, current_psi, epoch):
+        self._experiment.log_figure("Oracle state", figure, overwrite=True)
+        self._experiment.log_metric('PRD inside', auc(metrics["precision_inside"], metrics["recall_inside"]), step=self._epoch)
+        self._experiment.log_metric('PRD outside', auc(metrics["precision_outside"], metrics["recall_outside"]), step=self._epoch)
+
+    def log_performance(self, y_sampler, current_psi):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
-        self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=epoch)
-        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=epoch)
+        self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
+        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
         psis = self._perfomance_logs['psi'][-1]
         for i, psi in enumerate(psis):
-            self._experiment.log_metric('Psi_{}'.format(i), psi, step=epoch)
+            self._experiment.log_metric('Psi_{}'.format(i), psi, step=self._epoch)
 
         psi_grad = self._perfomance_logs['psi_grad'][-1]
-        self._experiment.log_metric('Psi grad norm', psi_grad.norm().item(), step=epoch)
-
+        self._experiment.log_metric('Psi grad norm', psi_grad.norm().item(), step=self._epoch)
+        self._epoch += 1
 
 class GANLogger(object):
     def __init__(self, experiment):
