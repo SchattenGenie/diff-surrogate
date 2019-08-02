@@ -86,6 +86,7 @@ class BaseLogger(ABC):
     def log_oracle(self, oracle, y_sampler, current_psi):
         # TODO: somehow refactor
         # because its very nasty
+        psi_dim = current_psi # y_sampler._psi_dim
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=3000,
             step=1,
@@ -93,17 +94,17 @@ class BaseLogger(ABC):
             n_samples=30
         )
         # TODO: even more nasty things
-        losses_oracle = oracle.func(conditions[:, :2]).detach().cpu().numpy()
-        grads_oracle = oracle.grad(conditions[:, :2]).detach().cpu().numpy()
+        losses_oracle = oracle.func(conditions[:, :psi_dim]).detach().cpu().numpy()
+        grads_oracle = oracle.grad(conditions[:, :psi_dim]).detach().cpu().numpy()
         losses_real = y_sampler.func(conditions).detach().cpu().numpy()
-        grads_real = y_sampler.grad(conditions).detach().cpu().numpy()[:, :2]
+        grads_real = y_sampler.grad(conditions).detach().cpu().numpy()[:, :psi_dim]
 
         conditions = conditions.detach().cpu().numpy()
-        unique_conditions = np.unique(conditions[:, :2], axis=0)
+        unique_conditions = np.unique(conditions[:, :psi_dim], axis=0)
         losses_dist = []
         grads_dist = []
         for condition in unique_conditions:
-            mask = (conditions[:, :2] == condition).all(axis=1)
+            mask = (conditions[:, :psi_dim] == condition).all(axis=1)
             losses_dist.append(losses_oracle[mask].mean() - losses_real[mask].mean())
             grads_dist.append(cosine(grads_oracle[mask].mean(axis=0), grads_real[mask].mean(axis=0)))
 
