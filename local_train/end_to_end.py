@@ -76,7 +76,7 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
-        print(x.device, condition.device)
+        print(x.shape, condition.shape)
         # at each epoch re-initialize and re-fit
         model = model_cls(y_model=y_sampler, **model_config).to(device)
         model.fit(x, condition=condition)
@@ -90,7 +90,10 @@ def end_to_end_training(epochs: int,
         # logging optimization, i.e. statistics of psi
         logger.log_performance(y_sampler=y_sampler, current_psi=current_psi)
         logger.log_optimizer(optimizer)
-        logger.log_oracle(oracle=model, y_sampler=y_sampler, current_psi=current_psi)
+        logger.log_oracle(oracle=model,
+                          y_sampler=y_sampler,
+                          current_psi=current_psi,
+                          step_data_gen=step_data_gen)
 
     return xs
 
@@ -126,6 +129,8 @@ def main(model,
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
+    psi_dim = len(init_psi)
+    model_config['psi_dim'] = psi_dim
 
     model_cls = str_to_class(model)
     optimizer_cls = str_to_class(optimizer)
