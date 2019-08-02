@@ -15,7 +15,7 @@ class PsiCompressor(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
+    def __init__(self, out_dim, psi_dim, hidden_dim=100, X_dim=1):
         super().__init__()
         self.fc1 = nn.Linear(X_dim + psi_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc1.weight)
@@ -47,7 +47,7 @@ class Net(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, noise_dim, out_dim, hidden_dim=100, X_dim=1, psi_dim=2):
+    def __init__(self, noise_dim, out_dim, psi_dim, hidden_dim=100, X_dim=1):
         super(Generator, self).__init__()
         
         self.fc1 = nn.Linear(noise_dim + X_dim + psi_dim, hidden_dim)
@@ -86,10 +86,10 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self,
                  in_dim,
+                 psi_dim,
                  hidden_dim=100,
                  wasserstein=False,
-                 X_dim=1,
-                 psi_dim=2):
+                 X_dim=1):
         super(Discriminator, self).__init__()
         self._wasserstein = wasserstein
 

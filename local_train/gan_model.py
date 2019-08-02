@@ -12,15 +12,16 @@ class GANModel(BaseConditionalGenerationOracle):
                  psi_dim: int,
                  y_dim: int,
                  x_dim: int,
-                 batch_size: int = 64,
-                 task: str = "KL",
+                 batch_size: int,
+                 task: str,
+                 epochs: int,
+                 lr: float,
                  grad_penalty: bool = False,
                  zero_centered_grad_penalty: bool = False,
                  instance_noise_std: float = None,
-                 iters_discriminator: int = 1,
-                 iters_generator: int = 5,
-                 epochs: int = 5,
-                 lr: float = 1e-3):
+                 iters_discriminator: int = 5,
+                 iters_generator: int = 1,
+                 logger=None):
         super(GANModel, self).__init__(y_model=y_model)
         if task == 'WASSERSTEIN':
             wasserstein = True
@@ -40,9 +41,12 @@ class GANModel(BaseConditionalGenerationOracle):
         self._iters_generator = iters_generator
         self._ganloss = GANLosses(task=task)
         self._generator = Generator(noise_dim=self._noise_dim,
-                                    out_dim=self._y_dim)
+                                    out_dim=self._y_dim,
+                                    psi_dim=self._psi_dim)
         self._discriminator = Discriminator(in_dim=self._y_dim,
-                                            wasserstein=wasserstein)
+                                            wasserstein=wasserstein,
+                                            psi_dim=self._psi_dim)
+        self.logger = logger
 
     @staticmethod
     def instance_noise(data, std):
@@ -62,6 +66,8 @@ class GANModel(BaseConditionalGenerationOracle):
                                                  shuffle=True)
 
         for epoch in range(self._epochs):
+            dis_epoch_loss = []
+            gen_epoch_loss = []
             for y_batch, cond_batch in dataloader:
                 for _ in range(self._iters_discriminator):
                     y_gen = self.generate(condition=cond_batch)
@@ -84,6 +90,7 @@ class GANModel(BaseConditionalGenerationOracle):
                     d_optimizer.zero_grad()
                     loss.backward()
                     d_optimizer.step()
+                dis_epoch_loss.append(loss.item())
 
                 for _ in range(self._iters_generator):
                     y_gen = self.generate(cond_batch)
@@ -93,6 +100,9 @@ class GANModel(BaseConditionalGenerationOracle):
                     g_optimizer.zero_grad()
                     loss.backward()
                     g_optimizer.step()
+                gen_epoch_loss.append(loss.item())
+
+            self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
 
         return self
 

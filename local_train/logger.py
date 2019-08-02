@@ -89,7 +89,7 @@ class BaseLogger(ABC):
         psi_dim = current_psi # y_sampler._psi_dim
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=3000,
-            step=1,
+            step=2,
             current_psi=current_psi,
             n_samples=30
         )
@@ -189,16 +189,25 @@ class CometLogger(SimpleLogger):
         figure = super().log_oracle(oracle, y_sampler, current_psi)
         self._experiment.log_figure("Oracle state", figure, overwrite=True)
 
-    def log_performance(self, y_sampler, current_psi):
+    def log_performance(self, y_sampler, current_psi, epoch):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
-        self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1])
-        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1])
+        self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=epoch)
+        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=epoch)
         psis = self._perfomance_logs['psi'][-1]
         for i, psi in enumerate(psis):
-            self._experiment.log_metric('Psi_{}'.format(i), psi)
+            self._experiment.log_metric('Psi_{}'.format(i), psi, step=epoch)
 
         psi_grad = self._perfomance_logs['psi_grad'][-1]
-        self._experiment.log_metric('Psi grad norm', psi_grad.norm().item())
+        self._experiment.log_metric('Psi grad norm', psi_grad.norm().item(), step=epoch)
 
 
+class GANLogger(object):
+    def __init__(self, experiment):
+        self._experiment = experiment
+        self._epoch = 0
+
+    def log_losses(self, losses):
+        self._experiment.log_metric("d_loss", np.mean(losses[0]), step=self._epoch)
+        self._experiment.log_metric("g_loss", np.mean(losses[1]), step=self._epoch)
+        self._epoch += 1
 
