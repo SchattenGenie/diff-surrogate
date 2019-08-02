@@ -6,6 +6,8 @@ model_config = {
     'noise_dim': 50,
     'lr': 1e-4,
     'batch_size': 64,
-    'epochs': 3,
+    'epochs': 20,
+    'iters_discriminator': 5,
+    'iters_generator': 1,
     'instance_noise_std': None
 }

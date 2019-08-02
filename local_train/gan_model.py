@@ -16,11 +16,11 @@ class GANModel(BaseConditionalGenerationOracle):
                  task: str,
                  epochs: int,
                  lr: float,
+                 iters_discriminator: int,
+                 iters_generator: int,
                  grad_penalty: bool = False,
                  zero_centered_grad_penalty: bool = False,
                  instance_noise_std: float = None,
-                 iters_discriminator: int = 5,
-                 iters_generator: int = 1,
                  logger=None):
         super(GANModel, self).__init__(y_model=y_model)
         if task == 'WASSERSTEIN':

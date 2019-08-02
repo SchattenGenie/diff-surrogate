@@ -86,7 +86,7 @@ class BaseLogger(ABC):
     def log_oracle(self, oracle, y_sampler, current_psi):
         # TODO: somehow refactor
         # because its very nasty
-        psi_dim = current_psi # y_sampler._psi_dim
+        psi_dim = current_psi.shape[0] # y_sampler._psi_dim
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=3000,
             step=2,
@@ -141,6 +141,7 @@ class SimpleLogger(BaseLogger):
         axs[0][1].grid()
         axs[0][1].set_ylabel("$\mu$", fontsize=19)
         axs[0][1].set_xlabel("iter", fontsize=19)
+        axs[0][1].set_title("Norm:".format(np.linalg.norm(xs[-1, :])))
 
         times = np.array(self._optimizer_logs['time'])
         axs[1][0].plot(times)
