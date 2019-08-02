@@ -25,9 +25,13 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  lr: float = 1e-3,
                  epochs: int = 10,
                  hidden_dims: Tuple[int] = (32, 32)):
-        super(FFJORDModel, self).__init__(y_model)
-        self._model = build_model_tabular(dims=x_dim,
-                                          condition_dim=psi_dim + x_dim,
+        super(FFJORDModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
+        self._x_dim = x_dim
+        self._y_dim =y_dim
+        self._psi_dim = psi_dim
+
+        self._model = build_model_tabular(dims=self._x_dim,
+                                          condition_dim=self._psi_dim + self._x_dim,
                                           layer_type='concat_v2',
                                           num_blocks=num_blocks,
                                           rademacher=False,
@@ -37,9 +41,6 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                                           bn_lag=0.01,
                                           batch_norm=True,
                                           regularization_fns=None)
-        self._x_dim = x_dim
-        self._y_dim =y_dim
-        self._psi_dim = psi_dim
         self._sample_fn, self._density_fn = get_transforms(self._model)
         self._epochs = epochs
         self._lr = lr
