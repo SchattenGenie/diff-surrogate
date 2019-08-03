@@ -147,7 +147,7 @@ class BaseLogger(ABC):
                                                    psi=psi, num_repetitions=num_repetitions)
                 )
                 metrics["func_metric_inside"].append(
-                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                    self.calc_func_metric_in_point(oracle=oracle, y_sampler=y_sampler,
                                                    psi=psi, num_repetitions=num_repetitions)
                 )
                 eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(oracle=oracle, y_sampler=y_sampler,
@@ -160,7 +160,7 @@ class BaseLogger(ABC):
                                                    psi=psi, num_repetitions=num_repetitions)
                 )
                 metrics["func_metric_outside"].append(
-                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
+                    self.calc_func_metric_in_point(oracle=oracle, y_sampler=y_sampler,
                                                    psi=psi, num_repetitions=num_repetitions)
                 )
                 eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(oracle=oracle, y_sampler=y_sampler,
@@ -265,7 +265,7 @@ class SimpleLogger(BaseLogger):
 
         axs[0][1].hist(metrics["func_metric_outside"], bins=50, density=True)
         axs[0][1].grid()
-        axs[0][1].set_ylabel("Loss relative error inside", fontsize=19)
+        axs[0][1].set_ylabel("Loss relative error outside", fontsize=19)
 
         axs[1][0].hist(metrics["grad_metric_inside"], bins=50, density=True)
         axs[1][0].grid()
@@ -275,11 +275,11 @@ class SimpleLogger(BaseLogger):
         axs[1][1].grid()
         axs[1][1].set_ylabel("Cosine distance of gradients outside", fontsize=19)
 
-        axs[2][0].hist(metrics["eigenvalues_metric_inside"], bins=50, density=True)
+        axs[2][0].hist(metrics["eigenvalues_metric_inside"], bins=50, density=True, range=(0, 5))
         axs[2][0].grid()
         axs[2][0].set_ylabel("Hessian eigenvalues relative error inside", fontsize=19)
 
-        axs[2][1].hist(metrics["eigenvalues_metric_outside"], bins=50, density=True)
+        axs[2][1].hist(metrics["eigenvalues_metric_outside"], bins=50, density=True, range=(0, 5))
         axs[2][1].grid()
         axs[2][1].set_ylabel("Hessian eigenvalues relative error outside", fontsize=19)
 
