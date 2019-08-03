@@ -258,7 +258,7 @@ class SimpleLogger(BaseLogger):
                                     scale_step=scale_step, num_samples=num_samples,
                                     num_repetitions=num_repetitions)
 
-        figure, axs = plt.subplots(4, 2, figsize=(18, 8 * 4), dpi=150)
+        figure, axs = plt.subplots(5, 2, figsize=(18, 8 * 5), dpi=300)
         axs[0][0].hist(metrics["func_metric_inside"], bins=50, density=True)
         axs[0][0].grid()
         axs[0][0].set_ylabel("Loss relative error inside", fontsize=19)
