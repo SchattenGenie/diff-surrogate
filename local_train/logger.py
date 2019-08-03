@@ -273,7 +273,7 @@ class SimpleLogger(BaseLogger):
 
         axs[1][1].hist(metrics["grad_metric_outside"], bins=50, density=True)
         axs[1][1].grid()
-        axs[1][1].set_ylabel("Cosine distance of gradients inside", fontsize=19)
+        axs[1][1].set_ylabel("Cosine distance of gradients outside", fontsize=19)
 
         axs[2][0].hist(metrics["eigenvalues_metric_inside"], bins=50, density=True)
         axs[2][0].grid()
@@ -281,15 +281,15 @@ class SimpleLogger(BaseLogger):
 
         axs[2][1].hist(metrics["eigenvalues_metric_outside"], bins=50, density=True)
         axs[2][1].grid()
-        axs[2][1].set_ylabel("Hessian eigenvalues relative error inside", fontsize=19)
+        axs[2][1].set_ylabel("Hessian eigenvalues relative error outside", fontsize=19)
 
         axs[3][0].hist(metrics["eigenvectrors_metric_inside"], bins=50, density=True)
         axs[3][0].grid()
         axs[3][0].set_ylabel("Cosine distance of hessian eigenvectors inside", fontsize=19)
 
-        axs[3][0].hist(metrics["eigenvectrors_metric_outside"], bins=50, density=True)
-        axs[3][0].grid()
-        axs[3][0].set_ylabel("Cosine distance of hessian eigenvectors outside", fontsize=19)
+        axs[3][1].hist(metrics["eigenvectrors_metric_outside"], bins=50, density=True)
+        axs[3][1].grid()
+        axs[3][1].set_ylabel("Cosine distance of hessian eigenvectors outside", fontsize=19)
 
         axs[4][0].step(metrics["precision_inside"], metrics["recall_inside"])
         axs[4][0].grid()
@@ -297,7 +297,7 @@ class SimpleLogger(BaseLogger):
 
         axs[4][1].step(metrics["precision_outside"], metrics["recall_outside"])
         axs[4][1].grid()
-        axs[4][1].set_ylabel("PRD score inside", fontsize=19)
+        axs[4][1].set_ylabel("PRD score outside", fontsize=19)
 
         return metrics, figure
 
