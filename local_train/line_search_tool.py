@@ -25,7 +25,9 @@ class OracleWrapper:
         return np.squeeze(self.func(x + alpha * d))
 
     def grad_directional(self, x, d, alpha):
-        return np.squeeze(self.grad(x + alpha * d).dot(d.detach().cpu().numpy()))
+        if isinstance(d, torch.Tensor):
+            d = d.detach().cpu().numpy()
+        return np.squeeze(self.grad(x + alpha * d)).dot(d)
 
 
 class LineSearchTool(object):
@@ -86,9 +88,9 @@ class LineSearchTool(object):
         oracle : BaseSmoothOracle-descendant object
             Oracle with .func_directional() and .grad_directional() methods implemented for computing
             function values and its directional derivatives.
-        x_k : np.array
+        x_k : torch.Tensor
             Starting point
-        d_k : np.array
+        d_k : torch.Tensor
             Search direction
         previous_alpha : float or None
             Starting point to use instead of self.alpha_0 to keep the progress from
@@ -99,6 +101,10 @@ class LineSearchTool(object):
         alpha : float or None if failure
             Chosen step size
         """
+        if isinstance(x_k, torch.Tensor):
+            x_k = x_k.detach().cpu().numpy()
+        if isinstance(d_k, torch.Tensor):
+            d_k = d_k.detach().cpu().numpy()
         oracle = OracleWrapper(oracle, num_repetitions=num_repetitions)
         if previous_alpha is None:
             previous_alpha = self.alpha_0
