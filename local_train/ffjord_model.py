@@ -46,7 +46,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._lr = lr
 
     def loss(self, y, condition):
-        return compute_loss(self._model, data=y, condition=condition)
+        return compute_loss(self._model, data=y.detach(), condition=condition.detach())
 
     def fit(self, y, condition):
         trainable_parameters = list(self._model.parameters())
