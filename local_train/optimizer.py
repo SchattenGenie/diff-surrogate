@@ -3,8 +3,10 @@ import numpy as np
 from base_model import BaseConditionalGenerationOracle
 from numpy.linalg import LinAlgError
 from line_search_tool import LineSearchTool, get_line_search_tool
+from torch import optim
 from logger import BaseLogger
 from collections import defaultdict
+import copy
 import scipy
 import matplotlib.pyplot as plt
 import torch
@@ -22,6 +24,7 @@ class BaseOptimizer(ABC):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
+                 x_step: float = np.inf,  # step_data_gen
                  tolerance: torch.Tensor = torch.tensor(1e-4),
                  trace: bool = True,
                  num_repetitions: int = 1000,
@@ -30,6 +33,8 @@ class BaseOptimizer(ABC):
         self._oracle = oracle
         self._history = defaultdict(list)
         self._x = x
+        self._x_init = copy.deepcopy(x)
+        self._x_step = x_step
         self._tolerance = tolerance
         self._trace = trace
         self._max_iters = max_iters
@@ -51,8 +56,21 @@ class BaseOptimizer(ABC):
         self._history['x'].append(
             self._x.detach().cpu().numpy()
         )
+        self._history['alpha'].append(
+            self._alpha_k
+        )
 
     def optimize(self):
+        """
+        Run optimization procedure
+        :return:
+            torch.Tensor:
+                x optim
+            str:
+                status_message
+            defaultdict(list):
+                optimization history
+        """
         for i in range(self._max_iters):
             status = self._step()
             if status == COMP_ERROR:
@@ -60,6 +78,12 @@ class BaseOptimizer(ABC):
             elif status == SUCCESS:
                 return self._x.detach().clone(), status, self._history
         return self._x.detach().clone(), ITER_ESCEEDED, self._history
+
+    def update(self, oracle: BaseConditionalGenerationOracle, x: torch.Tensor):
+        self._oracle = oracle
+        self._x = x
+        self._x_init = copy.deepcopy(x)
+        self._history = defaultdict(list)
 
     @abstractmethod
     def _step(self):
@@ -70,6 +94,12 @@ class BaseOptimizer(ABC):
         raise NotImplementedError('_step is not implemented.')
 
     def _post_step(self, init_time):
+        """
+        This function saves stats in history and forces
+        :param init_time:
+        :return:
+        """
+        self._x = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
         self._num_iter += 1
         if self._trace:
             self._update_history(init_time=init_time)
@@ -111,7 +141,6 @@ class GradientDescentOptimizer(BaseOptimizer):
                                                                d_k,
                                                                previous_alpha=2 * self._alpha_k,
                                                                num_repetitions=self._num_repetitions)
-        print(self._alpha_k)
         with torch.no_grad():
             x_k = x_k + d_k * self._alpha_k
         grad_norm = torch.norm(d_k).item()
@@ -163,6 +192,9 @@ class NewtonOptimizer(BaseOptimizer):
                                                      d_k,
                                                      previous_alpha=self._lr,
                                                      num_repetitions=self._num_repetitions)
+        if self._alpha_k is None:
+            self._alpha_k = self._lr
+
         with torch.no_grad():
             x_k = x_k + d_k * alpha_k
         self._x = x_k
@@ -242,9 +274,11 @@ class LBFGSOptimizer(BaseOptimizer):
                                                                previous_alpha=2 * self._alpha_k,
                                                                num_repetitions=self._num_repetitions)
 
+        if self._alpha_k is None:
+            self._alpha_k = self._lr
         x_k = x_k + d_k * self._alpha_k
         self._x = x_k.clone().detach()
-        g_k_new = self._oracle.grad(x_k)
+        g_k_new = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
         self._sy_history.append((self._alpha_k * d_k, g_k_new - g_k))
         if len(self._sy_history) > self._memory_size:
             self._sy_history.pop(0)
@@ -300,7 +334,6 @@ class ConjugateGradientsOptimizer(BaseOptimizer):
                                                                self._d_k,
                                                                previous_alpha=2 * self._alpha_k,
                                                                num_repetitions=self._num_repetitions)
-        # TODO: dirty hack, what to do when line_search_tool is not converged?
         if self._alpha_k is None:
             self._alpha_k = self._lr
 
@@ -312,6 +345,40 @@ class ConjugateGradientsOptimizer(BaseOptimizer):
 
         super()._post_step(init_time)
         grad_norm = torch.norm(g_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all() and
+                torch.isfinite(self._d_k).all()):
+            return COMP_ERROR
+
+
+class TorchOptimizer(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1e-1,
+                 torch_model: str = 'Adam',
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        self._x.requires_grad_(True)
+        self._lr = lr
+        self._alpha_k = self._lr
+        self._torch_model = torch_model
+        self._base_optimizer = getattr(optim, self._torch_model)(
+            params=[self._x], lr=lr
+        )
+
+    def _step(self):
+        init_time = time.time()
+
+        d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
+        self._x.grad = d_k
+        self._base_optimizer.step()
+        self._base_optimizer.zero_grad()
+        print(self._x)
+        super()._post_step(init_time)
+        grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
             return SUCCESS
         if not (torch.isfinite(x_k).all() and
