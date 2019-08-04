@@ -6,7 +6,6 @@ import torch
 import numpy as np
 sys.path.append('../')
 from typing import List, Union
-from utils import generate_local_data_lhs
 from model import YModel
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
@@ -51,7 +50,12 @@ def end_to_end_training(epochs: int,
                         n_samples_per_dim: int,
                         step_data_gen: float,
                         n_samples: int,
-                        current_psi: Union[List[float], torch.tensor]):
+                        current_psi: Union[List[float], torch.tensor],
+                        reuse_optimizer: bool = False,
+                        reuse_model: bool = False,
+                        shift_model: bool = False,
+                        finetune_model: bool = False,
+                        ):
     """
 
     :param epochs: int
@@ -66,29 +70,59 @@ def end_to_end_training(epochs: int,
     :param step_data_gen: float
     :param n_samples: int
     :param current_psi:
+    :param reuse_model:
+    :param reuse_optimizer:
+    :param finetune_model:
+    :param shift_model:
+
     :return:
     """
     y_sampler = YModel(device=device, psi_init=current_psi)
+    model = model_cls(y_model=y_sampler, **model_config).to(device)
+    optimizer = optimizer_cls(oracle=model,
+                              x=current_psi,
+                              **optimizer_config)
     for epoch in range(epochs):
         # generate new data sample
+        # condition
         x, condition = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=n_samples_per_dim,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
+        # shift = torch.zeros(condition.shape[1]).view(1, -1).float().to(condition.device)
         print(x.shape, condition.shape)
-        # at each epoch re-initialize and re-fit
-        model = model_cls(y_model=y_sampler, **model_config).to(device)
-        model.fit(x, condition=condition)
+        if reuse_model:
+            if shift_model:
+                if isinstance(model, ShiftedOracle):
+                    model.set_shift(condition.mean(dim=0))
+                else:
+                    model = ShiftedOracle(oracle=model, shift=condition.mean(dim=0))
+                model.fit(x, condition=condition)
+            elif finetune_model:
+                model.fit(x, condition=condition)
+        else:
+            # if not reusing model
+            # then at each epoch re-initialize and re-fit
+            model = model_cls(y_model=y_sampler, **model_config).to(device)
+            model.fit(x, condition=condition)
 
-        # find new psi
-        optimizer = optimizer_cls(oracle=model,
-                                  x=current_psi,
-                                  **optimizer_config)
+        if reuse_optimizer:
+            optimizer.update(oracle=model,
+                             x=current_psi)
+        else:
+            # find new psi
+            optimizer = optimizer_cls(oracle=model,
+                                      x=current_psi,
+                                      **optimizer_config)
+
         current_psi, status, history = optimizer.optimize()
+        # with torch.no_grad(): current_psi += shift
+
         print(current_psi, status)
         # logging optimization, i.e. statistics of psi
-        logger.log_performance(y_sampler=y_sampler, current_psi=current_psi)
+        logger.log_performance(y_sampler=y_sampler,
+                               current_psi=current_psi)
         logger.log_optimizer(optimizer)
         logger.log_oracle(oracle=model,
                           y_sampler=y_sampler,
