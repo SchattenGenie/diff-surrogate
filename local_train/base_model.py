@@ -81,14 +81,14 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         """
         condition = condition.to(self.device)
         if isinstance(num_repetitions, int):
-            assert len(condition.size()) == 1
+            # assert len(condition.size()) == 1
             conditions = condition.repeat(num_repetitions, 1)
             conditions = torch.cat([
                 conditions,
                 self._y_model.sample_x(len(conditions)).to(self.device)
             ], dim=1)
             y = self.generate(conditions)
-            loss = self._y_model.loss(y=y).mean()
+            loss = self._y_model.loss(y=y).sum() / num_repetitions
             return loss
         else:
             condition = torch.cat([
@@ -113,7 +113,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
-            assert len(condition.size()) == 1
+            # assert len(condition.size()) == 1
             return grad([self.func(condition, num_repetitions=num_repetitions)], [condition])[0]
         else:
             return grad([self.func(condition).mean()], [condition])[0]
@@ -130,7 +130,30 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
-            assert len(condition.size()) == 1
+            # assert len(condition.size()) == 1
             return hessian_calc(self.func(condition, num_repetitions=num_repetitions), condition)
         else:
             return hessian_calc(self.func(condition).mean(), condition)
+
+
+class ShiftedOracle:
+    def __init__(self, oracle: BaseConditionalGenerationOracle, shift: torch.Tensor):
+        self._oracle = oracle
+        self._shift = shift.detach().clone()
+
+    def set_shift(self, shift):
+        self._shift = shift.detach().clone()
+
+    def __getattr__(self, attr):
+        orig_attr = self.wrapped_class.__getattribute__(attr)
+        if orig_attr in ['loss', 'fit', 'generate', 'func', 'grad', 'hessian']:
+            def hooked(*args, **kwargs):
+                with torch.no_grad():
+                    kwargs['condition'] = kwargs['condition'] - self._shift
+                result = orig_attr(*args, **kwargs)
+                if result == self.wrapped_class:
+                    return self
+                return result
+            return hooked
+        else:
+            return orig_attr
