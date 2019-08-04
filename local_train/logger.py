@@ -10,6 +10,7 @@ import torch
 import sys
 sys.path.append('../')
 from utils import generate_local_data_lhs
+from tqdm import tqdm
 from model import YModel
 from pyDOE import lhs
 import time
@@ -84,35 +85,90 @@ class BaseLogger(ABC):
         self._optimizer_logs['func'].extend(history['func'])
         self._optimizer_logs['grad'].extend(history['grad'])
         self._optimizer_logs['time'].extend(history['time'])
+        self._optimizer_logs['alpha'].extend(history['alpha'])
         return None
 
     @staticmethod
-    def calc_grad_metric_in_point(oracle, y_sampler, psi, num_repetitions):
-        grad_true = y_sampler.grad(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        grad_fake = oracle.grad(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        return cosine(grad_true, grad_fake)
+    def calc_grad_metric_in_points(oracle, y_sampler, psis, num_repetitions):
+        grad_true = y_sampler.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        grad_fake = oracle.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        return [cosine(grad_true_i, grad_fake_i)
+                for grad_true_i, grad_fake_i in zip(grad_true, grad_fake)]
 
     @staticmethod
-    def calc_func_metric_in_point(oracle, y_sampler, psi, num_repetitions):
-        y_true = y_sampler.func(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        y_fake = oracle.func(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        return np.abs((y_true - y_fake) / y_true)
+    def calc_func_metric_in_points(oracle, y_sampler, psis, num_repetitions):
+        psis = psis.detach().clone().repeat(1, num_repetitions).view(-1, psis.shape[1])
+        y_true = y_sampler.func(psis).detach().cpu().numpy()
+        y_true = [np.mean(y_true[i * num_repetitions: (i + 1) * num_repetitions])
+                  for i in range(len(psis) // num_repetitions)]
+        y_fake = oracle.func(psis).detach().cpu().numpy()
+        y_fake = [np.mean(y_fake[i * num_repetitions: (i + 1) * num_repetitions])
+                  for i in range(len(psis) // num_repetitions)]
+        return np.abs((np.array(y_true) - np.array(y_fake)) / y_true).tolist()
 
     @staticmethod
-    def calc_hessian_metric_in_point(oracle, y_sampler, psi, num_repetitions):
-        hessian_true = y_sampler.hessian(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        hessian_fake = oracle.hessian(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        eigvecs_true, eigvals_true, _ = np.linalg.svd(hessian_true)
-        eigvecs_fake, eigvals_fake, _ = np.linalg.svd(hessian_fake)
-        cosine_distane_hessian = []
-        for i in range(eigvecs_true.shape[1]):
-            cosine_distane_hessian.append(
-                cosine(eigvecs_true[:, i], eigvecs_fake[:, i])
+    def calc_hessian_metric_in_points(oracle, y_sampler, psis, num_repetitions):
+        psi_dim = psis.shape[1]
+        hessian_true = y_sampler.hessian(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        hessian_fake = oracle.hessian(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        cosine_distanes_hessian = []
+        relative_errors_hessain = []
+        for i in tqdm(range(len(hessian_true) // psi_dim)):
+            hessian_true_batch = hessian_true[i * psi_dim: (i + 1) * psi_dim, i * psi_dim: (i + 1) * psi_dim]
+            hessian_fake_batch = hessian_fake[i * psi_dim: (i + 1) * psi_dim, i * psi_dim: (i + 1) * psi_dim]
+            eigvecs_true, eigvals_true, _ = np.linalg.svd(hessian_true_batch)
+            eigvecs_fake, eigvals_fake, _ = np.linalg.svd(hessian_fake_batch)
+            relative_errors_hessain.extend(np.abs((eigvals_true - eigvals_fake) / eigvals_true).tolist())
+            for j in range(eigvecs_true.shape[1]):
+                cosine_distanes_hessian.append(
+                    cosine(eigvecs_true[:, j], eigvecs_fake[:, j])
+                )
+        return relative_errors_hessain, cosine_distanes_hessian
+
+    def _log_diff_metrics(self, oracle, y_sampler, metrics,
+                          psis, current_psi,
+                          step_data_gen, num_repetitions,
+                          calc_hessian=False):
+        if ((psis - current_psi).abs() < step_data_gen).all().item():
+            metrics["grad_metric_inside"].extend(
+                self.calc_grad_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                                psis=psis, num_repetitions=num_repetitions)
             )
-        return np.abs((eigvals_true - eigvals_fake) / eigvals_true).tolist(), cosine_distane_hessian
+            metrics["func_metric_inside"].extend(
+                self.calc_func_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                                psis=psis, num_repetitions=num_repetitions)
+            )
+            if not calc_hessian:
+                return
+            eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(
+                oracle=oracle,
+                y_sampler=y_sampler,
+                psi=psi,
+                num_repetitions=num_repetitions)
+            metrics["eigenvalues_metric_inside"].extend(eigenvalues_distances_hess)
+            metrics["eigenvectrors_metric_inside"].extend(eigenvectors_distanes_hess)
+        else:
+            metrics["grad_metric_outside"].extend(
+                self.calc_grad_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                                psis=psis, num_repetitions=num_repetitions)
+            )
+            metrics["func_metric_outside"].extend(
+                self.calc_func_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                               psis=psis, num_repetitions=num_repetitions)
+            )
+            if not calc_hessian:
+                return
+            eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_points(
+                oracle=oracle,
+                y_sampler=y_sampler,
+                psis=psis,
+                num_repetitions=num_repetitions)
+            metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
+            metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
 
     @abstractmethod
-    def log_oracle(self, oracle, y_sampler,
+    def log_oracle(self, oracle,
+                   y_sampler,
                    current_psi,
                    step_data_gen,
                    scale_step=2,
@@ -137,36 +193,26 @@ class BaseLogger(ABC):
                 PRD score of generated samples outside of training region
         """
         metrics = defaultdict(list)
+        num_samples = 90
         psi_dim = current_psi.shape[0]  # y_sampler._psi_dim
-        psis = torch.tensor(lhs(len(current_psi), num_samples)).float().to(current_psi.device)
-        psis = scale_step * step_data_gen * (psis * 2 - 1) + current_psi.view(1, -1)
-        for i, psi in enumerate(psis):
-            if (psi - current_psi).norm().item() < step_data_gen:
-                metrics["grad_metric_inside"].append(
-                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                metrics["func_metric_inside"].append(
-                    self.calc_func_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                metrics["eigenvalues_metric_inside"].extend(eigenvalues_distances_hess)
-                metrics["eigenvectrors_metric_inside"].extend(eigenvectors_distanes_hess)
-            else:
-                metrics["grad_metric_outside"].append(
-                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                metrics["func_metric_outside"].append(
-                    self.calc_func_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
-                metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
+        psis_inside = torch.tensor(lhs(len(current_psi), num_samples)).float().to(current_psi.device)
+        psis_inside = step_data_gen * (psis_inside * 2 - 1) + current_psi.view(1, -1)
+
+        psis_outside = torch.tensor(lhs(len(current_psi), num_samples)).float().to(current_psi.device)
+        psis_outside = scale_step * step_data_gen * (psis_outside * 2 - 1) + current_psi.view(1, -1)
+
+        psis = torch.cat([psis_inside, psis_outside], dim=0)
+        chunk_size = 30
+        for i in tqdm(range(0, len(psis), chunk_size)):
+            print(i, chunk_size)
+            psis_batch = psis[i:i + chunk_size]
+            self._log_diff_metrics(oracle=oracle,
+                                   y_sampler=y_sampler,
+                                   metrics=metrics,
+                                   psis=psis_batch,
+                                   current_psi=current_psi,
+                                   step_data_gen=step_data_gen,
+                                   num_repetitions=num_repetitions)
 
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=100,
@@ -207,9 +253,17 @@ class BaseLogger(ABC):
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
         self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000))
 
+
 class SimpleLogger(BaseLogger):
     def __init__(self):
         super(SimpleLogger, self).__init__()
+
+
+    @staticmethod
+    def _print_num_nans_in_metric(metrics, metric_name):
+        print("{} contains {} inf/nans".format(
+            metric_name, (~np.isfinite(metrics[metric_name])).sum()
+        ))
 
     def log_optimizer(self, optimizer):
         super().log_optimizer(optimizer)
@@ -225,11 +279,11 @@ class SimpleLogger(BaseLogger):
 
         xs = np.array(self._optimizer_logs['x'])
         for i in range(xs.shape[1]):
-            axs[0][1].plot(xs[:, i], label=i)
+            axs[0][1].plot(xs[:, i])
         axs[0][1].grid()
         axs[0][1].set_ylabel("$\mu$", fontsize=19)
         axs[0][1].set_xlabel("iter", fontsize=19)
-        axs[0][1].set_title("Norm:".format(np.linalg.norm(xs[-1, :])))
+        axs[0][1].set_title("Norm: {}".format(np.linalg.norm(xs[-1, :])))
 
         times = np.array(self._optimizer_logs['time'])
         axs[1][0].plot(times)
@@ -239,13 +293,16 @@ class SimpleLogger(BaseLogger):
 
         ds = np.array(self._optimizer_logs['grad'])
         for i in range(ds.shape[1]):
-            axs[1][1].plot(ds[:, i], label=i)
+            axs[1][1].plot(ds[:, i])
         axs[1][1].grid()
         axs[1][1].set_ylabel("$\delta \mu$", fontsize=19)
         axs[1][1].set_xlabel("iter", fontsize=19)
+        axs[1][1].set_title("Norm: {}".format(np.linalg.norm(ds[-1, :])))
 
         figure.legend()
         return figure
+
+
 
     def log_oracle(self, oracle, y_sampler,
                    current_psi,
@@ -259,42 +316,54 @@ class SimpleLogger(BaseLogger):
                                     num_repetitions=num_repetitions)
 
         figure, axs = plt.subplots(5, 2, figsize=(18, 8 * 5), dpi=300)
+        self._print_num_nans_in_metric(metrics, "func_metric_inside")
         axs[0][0].hist(metrics["func_metric_inside"], bins=50, density=True)
         axs[0][0].grid()
         axs[0][0].set_ylabel("Loss relative error inside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "func_metric_outside")
         axs[0][1].hist(metrics["func_metric_outside"], bins=50, density=True)
         axs[0][1].grid()
         axs[0][1].set_ylabel("Loss relative error outside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "grad_metric_inside")
         axs[1][0].hist(metrics["grad_metric_inside"], bins=50, density=True)
         axs[1][0].grid()
         axs[1][0].set_ylabel("Cosine distance of gradients inside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "grad_metric_outside")
         axs[1][1].hist(metrics["grad_metric_outside"], bins=50, density=True)
         axs[1][1].grid()
         axs[1][1].set_ylabel("Cosine distance of gradients outside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "eigenvalues_metric_inside")
         axs[2][0].hist(metrics["eigenvalues_metric_inside"], bins=50, density=True, range=(0, 5))
         axs[2][0].grid()
         axs[2][0].set_ylabel("Hessian eigenvalues relative error inside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "eigenvalues_metric_outside")
         axs[2][1].hist(metrics["eigenvalues_metric_outside"], bins=50, density=True, range=(0, 5))
         axs[2][1].grid()
         axs[2][1].set_ylabel("Hessian eigenvalues relative error outside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "eigenvectrors_metric_inside")
         axs[3][0].hist(metrics["eigenvectrors_metric_inside"], bins=50, density=True)
         axs[3][0].grid()
         axs[3][0].set_ylabel("Cosine distance of hessian eigenvectors inside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "eigenvectrors_metric_outside")
         axs[3][1].hist(metrics["eigenvectrors_metric_outside"], bins=50, density=True)
         axs[3][1].grid()
         axs[3][1].set_ylabel("Cosine distance of hessian eigenvectors outside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "precision_inside")
+        self._print_num_nans_in_metric(metrics, "recall_inside")
         axs[4][0].step(metrics["precision_inside"], metrics["recall_inside"])
         axs[4][0].grid()
         axs[4][0].set_ylabel("PRD score inside", fontsize=19)
 
+        self._print_num_nans_in_metric(metrics, "precision_outside")
+        self._print_num_nans_in_metric(metrics, "recall_outside")
         axs[4][1].step(metrics["precision_outside"], metrics["recall_outside"])
         axs[4][1].grid()
         axs[4][1].set_ylabel("PRD score outside", fontsize=19)
