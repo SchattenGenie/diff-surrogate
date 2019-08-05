@@ -113,7 +113,7 @@ class YModel(BaseConditionalGenerationOracle):
 
         # mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
         #                                  randomSeed=np.random.randint(1e5)).T).float().to(self.device)
-        mus =  torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
+        mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
         mus = step * (mus * 2 - 1) + current_psi
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
         self.make_condition_sample({'mu': mus, 'x': xs})
