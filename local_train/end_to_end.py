@@ -11,7 +11,7 @@ from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from optimizer import *
 from logger import SimpleLogger, CometLogger
-from base_model import BaseConditionalGenerationOracle
+from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 
 
 def get_freer_gpu():
@@ -100,6 +100,7 @@ def end_to_end_training(epochs: int,
                     model = ShiftedOracle(oracle=model, shift=condition.mean(dim=0))
                 model.fit(x, condition=condition)
             elif finetune_model:
+                # model.refit(x, condition=condition)
                 model.fit(x, condition=condition)
         else:
             # if not reusing model
@@ -145,6 +146,10 @@ def end_to_end_training(epochs: int,
 @click.option('--n_samples', type=int, default=10)
 @click.option('--step_data_gen', type=float, default=1.)
 @click.option('--n_samples_per_dim', type=int, default=3000)
+@click.option('--reuse_optimizer', type=bool, default=False)
+@click.option('--reuse_model', type=bool, default=False)
+@click.option('--shift_model', type=bool, default=False)
+@click.option('--finetune_model', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,
@@ -158,13 +163,18 @@ def main(model,
          n_samples,
          step_data_gen,
          n_samples_per_dim,
-         init_psi="0., 0."
+         reuse_optimizer,
+         reuse_model,
+         shift_model,
+         finetune_model,
+         init_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim
+    optimizer_config['x_step'] = step_data_gen
 
     model_cls = str_to_class(model)
     optimizer_cls = str_to_class(optimizer)
@@ -178,6 +188,9 @@ def main(model,
     )
     experiment.log_parameters(
         {"optimizer_{}".format(key): value for key, value in optimizer_config.items()}
+    )
+    experiment.log_parameters(
+        {"optimizer_{}".format(key): value for key, value in optimizer_config.get('line_search_options', {}).items()}
     )
     # experiment.log_asset("./gan_model.py", overwrite=True)
     # experiment.log_asset("./optim.py", overwrite=True)
@@ -196,7 +209,11 @@ def main(model,
         current_psi=init_psi,
         n_samples_per_dim=n_samples_per_dim,
         step_data_gen=step_data_gen,
-        n_samples=n_samples
+        n_samples=n_samples,
+        reuse_optimizer=reuse_optimizer,
+        reuse_model=reuse_model,
+        shift_model=shift_model,
+        finetune_model=finetune_model
     )
 
 
