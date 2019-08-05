@@ -57,7 +57,7 @@ def smooth(x, window_len=11, window='hanning'):
     if window_len < 3:
         return x
 
-    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+    if window not in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
         raise ValueError("Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
 
     s = np.r_[x[window_len - 1:0:-1], x, x[-2:-window_len - 1:-1]]
@@ -249,15 +249,14 @@ class BaseLogger(ABC):
         self._perfomance_logs['time'].append(time.time() - self._time)
         self._time = time.time()
         print(current_psi)
-        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=5000))
+        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=5000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
-        self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000))
+        self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000).detach().cpu().numpy())
 
 
 class SimpleLogger(BaseLogger):
     def __init__(self):
         super(SimpleLogger, self).__init__()
-
 
     @staticmethod
     def _print_num_nans_in_metric(metrics, metric_name):
@@ -283,12 +282,15 @@ class SimpleLogger(BaseLogger):
         axs[0][1].grid()
         axs[0][1].set_ylabel("$\mu$", fontsize=19)
         axs[0][1].set_xlabel("iter", fontsize=19)
+        axs[0][1].plot(np.linalg.norm(xs, axis=1),
+                       c='k', linewidth=2,
+                       label='$| \mu |$')
         axs[0][1].set_title("Norm: {}".format(np.linalg.norm(xs[-1, :])))
 
-        times = np.array(self._optimizer_logs['time'])
-        axs[1][0].plot(times)
+        alpha_k = np.array(self._optimizer_logs['alpha_k'])
+        axs[1][0].plot(alpha_k)
         axs[1][0].grid()
-        axs[1][0].set_ylabel("Time spend", fontsize=19)
+        axs[1][0].set_ylabel("alpha_k", fontsize=19)
         axs[1][0].set_xlabel("iter", fontsize=19)
 
         ds = np.array(self._optimizer_logs['grad'])
@@ -296,13 +298,14 @@ class SimpleLogger(BaseLogger):
             axs[1][1].plot(ds[:, i])
         axs[1][1].grid()
         axs[1][1].set_ylabel("$\delta \mu$", fontsize=19)
+        axs[1][1].plot(np.linalg.norm(ds, axis=1),
+                       c='k', linewidth=2,
+                       label='$| \delta \mu |$')
         axs[1][1].set_xlabel("iter", fontsize=19)
         axs[1][1].set_title("Norm: {}".format(np.linalg.norm(ds[-1, :])))
 
         figure.legend()
         return figure
-
-
 
     def log_oracle(self, oracle, y_sampler,
                    current_psi,
@@ -404,12 +407,14 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
         self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
         psis = self._perfomance_logs['psi'][-1]
-        for i, psi in enumerate(psis):
-            self._experiment.log_metric('Psi_{}'.format(i), psi, step=self._epoch)
+        self._experiment.log_metric('Psi norm', np.linalg.norm(psis), step=self._epoch)
+        # for i, psi in enumerate(psis):
+        # self._experiment.log_metric('Psi_{}'.format(i), psi, step=self._epoch)
 
         psi_grad = self._perfomance_logs['psi_grad'][-1]
-        self._experiment.log_metric('Psi grad norm', psi_grad.norm().item(), step=self._epoch)
+        self._experiment.log_metric('Psi grad norm', np.linalg.norm(psi_grad), step=self._epoch)
         self._epoch += 1
+
 
 class GANLogger(object):
     def __init__(self, experiment):
