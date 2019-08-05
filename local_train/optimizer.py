@@ -31,6 +31,7 @@ class BaseOptimizer(ABC):
                  max_iters: int = 1000,
                  *args, **kwargs):
         self._oracle = oracle
+        self._oracle.eval()
         self._history = defaultdict(list)
         self._x = x
         self._x_init = copy.deepcopy(x)
@@ -39,7 +40,8 @@ class BaseOptimizer(ABC):
         self._trace = trace
         self._max_iters = max_iters
         self._num_repetitions = num_repetitions
-        self._num_iter = 0
+        self._num_iter = 0.
+        self._alpha_k = 0.
 
     def _update_history(self, init_time):
         self._history['time'].append(
@@ -141,6 +143,9 @@ class GradientDescentOptimizer(BaseOptimizer):
                                                                d_k,
                                                                previous_alpha=2 * self._alpha_k,
                                                                num_repetitions=self._num_repetitions)
+        if self._alpha_k is None:
+            print('alpha_k is None!')
+            self._alpha_k = self._lr
         with torch.no_grad():
             x_k = x_k + d_k * self._alpha_k
         grad_norm = torch.norm(d_k).item()
@@ -172,7 +177,7 @@ class NewtonOptimizer(BaseOptimizer):
                 'c':  self._lr
             }
         self._line_search_tool = get_line_search_tool(line_search_options)
-
+        self._alpha_k = None
 
     def _step(self):
         # seems like a bad dependence...
@@ -187,16 +192,17 @@ class NewtonOptimizer(BaseOptimizer):
             d_k = torch.tensor(d_k).float().to(self._oracle.device)
         except LinAlgError:
             pass
-        alpha_k = self._line_search_tool.line_search(self._oracle,
-                                                     x_k,
-                                                     d_k,
-                                                     previous_alpha=self._lr,
-                                                     num_repetitions=self._num_repetitions)
+        self._alpha_k = self._line_search_tool.line_search(self._oracle,
+                                                           x_k,
+                                                           d_k,
+                                                           previous_alpha=self._lr,
+                                                           num_repetitions=self._num_repetitions)
         if self._alpha_k is None:
+            print('alpha_k is None!')
             self._alpha_k = self._lr
 
         with torch.no_grad():
-            x_k = x_k + d_k * alpha_k
+            x_k = x_k + d_k * self._alpha_k
         self._x = x_k
         super()._post_step(init_time)
 
@@ -275,6 +281,7 @@ class LBFGSOptimizer(BaseOptimizer):
                                                                num_repetitions=self._num_repetitions)
 
         if self._alpha_k is None:
+            print('alpha_k is None!')
             self._alpha_k = self._lr
         x_k = x_k + d_k * self._alpha_k
         self._x = x_k.clone().detach()
@@ -335,10 +342,11 @@ class ConjugateGradientsOptimizer(BaseOptimizer):
                                                                previous_alpha=2 * self._alpha_k,
                                                                num_repetitions=self._num_repetitions)
         if self._alpha_k is None:
+            print('alpha_k is None!')
             self._alpha_k = self._lr
 
         x_k = x_k + self._d_k * self._alpha_k
-        g_k_next = self._oracle.grad(x_k)
+        g_k_next = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
         beta_k = g_k_next.dot((g_k_next - g_k)) / norm_squared
         self._d_k = -g_k_next + beta_k * self._d_k
         self._x = x_k.clone().detach()
