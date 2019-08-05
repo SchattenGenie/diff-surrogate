@@ -145,13 +145,36 @@ class ShiftedOracle:
         self._shift = shift.detach().clone()
 
     def __getattr__(self, attr):
-        orig_attr = self.wrapped_class.__getattribute__(attr)
-        if orig_attr in ['loss', 'fit', 'generate', 'func', 'grad', 'hessian']:
+        orig_attr = self._oracle.__getattribute__(attr)
+        print()
+        if orig_attr.__name__ in [
+            'func',
+            'grad',
+            'hessian']:
             def hooked(*args, **kwargs):
                 with torch.no_grad():
                     kwargs['condition'] = kwargs['condition'] - self._shift
                 result = orig_attr(*args, **kwargs)
-                if result == self.wrapped_class:
+                if result is self._oracle:
+                    return self
+                return result
+            return hooked
+        elif orig_attr.__name__ in [
+            'loss',
+            'fit',
+            'generate']:
+            def hooked(*args, **kwargs):
+                with torch.no_grad():
+                    kwargs['condition'][:, :len(self._shift)] = kwargs['condition'][:, :len(self._shift)] - self._shift
+                result = orig_attr(*args, **kwargs)
+                if result is self._oracle:
+                    return self
+                return result
+            return hooked
+        elif callable(orig_attr):
+            def hooked(*args, **kwargs):
+                result = orig_attr(*args, **kwargs)
+                if result is self._oracle:
                     return self
                 return result
             return hooked
