@@ -8,3 +8,4 @@
 *.pkl
 *.pcl
 *.pyc
+local_train/tmp

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from collections import defaultdict
 from sklearn.metrics import auc
 from scipy.spatial.distance import cosine
@@ -14,6 +15,9 @@ from tqdm import tqdm
 from model import YModel
 from pyDOE import lhs
 import time
+
+my_cmap = plt.cm.jet
+my_cmap.set_under('white')
 
 
 # https://scipy-cookbook.readthedocs.io/items/SignalSmooth.html
@@ -104,7 +108,7 @@ class BaseLogger(ABC):
         y_fake = oracle.func(psis).detach().cpu().numpy()
         y_fake = [np.mean(y_fake[i * num_repetitions: (i + 1) * num_repetitions])
                   for i in range(len(psis) // num_repetitions)]
-        return np.abs((np.array(y_true) - np.array(y_fake)) / y_true).tolist()
+        return ((np.array(y_true) - np.array(y_fake)) / y_true).tolist()
 
     @staticmethod
     def calc_hessian_metric_in_points(oracle, y_sampler, psis, num_repetitions):
@@ -129,42 +133,27 @@ class BaseLogger(ABC):
                           psis, current_psi,
                           step_data_gen, num_repetitions,
                           calc_hessian=False):
-        if ((psis - current_psi).abs() < step_data_gen).all().item():
-            metrics["grad_metric_inside"].extend(
-                self.calc_grad_metric_in_points(oracle=oracle, y_sampler=y_sampler,
-                                                psis=psis, num_repetitions=num_repetitions)
-            )
-            metrics["func_metric_inside"].extend(
-                self.calc_func_metric_in_points(oracle=oracle, y_sampler=y_sampler,
-                                                psis=psis, num_repetitions=num_repetitions)
-            )
-            if not calc_hessian:
-                return
-            eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(
-                oracle=oracle,
-                y_sampler=y_sampler,
-                psi=psi,
-                num_repetitions=num_repetitions)
-            metrics["eigenvalues_metric_inside"].extend(eigenvalues_distances_hess)
-            metrics["eigenvectrors_metric_inside"].extend(eigenvectors_distanes_hess)
-        else:
-            metrics["grad_metric_outside"].extend(
-                self.calc_grad_metric_in_points(oracle=oracle, y_sampler=y_sampler,
-                                                psis=psis, num_repetitions=num_repetitions)
-            )
-            metrics["func_metric_outside"].extend(
-                self.calc_func_metric_in_points(oracle=oracle, y_sampler=y_sampler,
-                                               psis=psis, num_repetitions=num_repetitions)
-            )
-            if not calc_hessian:
-                return
+        metrics["grad_metric"].extend(
+            self.calc_grad_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                            psis=psis, num_repetitions=num_repetitions)
+        )
+        metrics["func_metric"].extend(
+            self.calc_func_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                           psis=psis, num_repetitions=num_repetitions)
+        )
+
+        if len(current_psi) == 2:
+            metrics["grad_true"].extend(y_sampler.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy())
+            metrics["grad_fake"].extend(oracle.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy())
+
+        if calc_hessian:
             eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_points(
                 oracle=oracle,
                 y_sampler=y_sampler,
                 psis=psis,
                 num_repetitions=num_repetitions)
-            metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
-            metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
+            metrics["eigenvalues_metric"].extend(eigenvalues_distances_hess)
+            metrics["eigenvectors_metric"].extend(eigenvectors_distanes_hess)
 
     @abstractmethod
     def log_oracle(self, oracle,
@@ -193,7 +182,6 @@ class BaseLogger(ABC):
                 PRD score of generated samples outside of training region
         """
         metrics = defaultdict(list)
-        num_samples = 90
         psi_dim = current_psi.shape[0]  # y_sampler._psi_dim
         psis_inside = torch.tensor(lhs(len(current_psi), num_samples)).float().to(current_psi.device)
         psis_inside = step_data_gen * (psis_inside * 2 - 1) + current_psi.view(1, -1)
@@ -202,7 +190,8 @@ class BaseLogger(ABC):
         psis_outside = scale_step * step_data_gen * (psis_outside * 2 - 1) + current_psi.view(1, -1)
 
         psis = torch.cat([psis_inside, psis_outside], dim=0)
-        chunk_size = 30
+        metrics["psis"] = psis.detach().cpu().numpy()
+        chunk_size = 1000
         for i in tqdm(range(0, len(psis), chunk_size)):
             print(i, chunk_size)
             psis_batch = psis[i:i + chunk_size]
@@ -213,6 +202,11 @@ class BaseLogger(ABC):
                                    current_psi=current_psi,
                                    step_data_gen=step_data_gen,
                                    num_repetitions=num_repetitions)
+
+        mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy()
+        for key in list(metrics):
+            metrics[key + "_inside"] = np.array(metrics[key])[mask_in]
+            metrics[key + "_outside"] = np.array(metrics[key])[~mask_in]
 
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=100,
@@ -402,6 +396,9 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('PRD inside', auc(metrics["precision_inside"], metrics["recall_inside"]), step=self._epoch)
         self._experiment.log_metric('PRD outside', auc(metrics["precision_outside"], metrics["recall_outside"]), step=self._epoch)
 
+        if len(current_psi) == 2:
+            self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
+
     def log_performance(self, y_sampler, current_psi):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
@@ -415,6 +412,72 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Psi grad norm', np.linalg.norm(psi_grad), step=self._epoch)
         self._epoch += 1
 
+    def log_grads_2d(self, psis, metrics, current_psi, step_data_gen):
+        g = plt.figure(figsize=(16, 8))
+
+        ax = plt.subplot(1, 2, 1)
+        plt.scatter(psis[:, 0],
+                    psis[:, 1],
+                    c=metrics["func_metric"],
+                    cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("Loss relative diff", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+
+        ax = plt.subplot(1, 2, 2)
+        plt.scatter(psis[:, 0],
+                    psis[:, 1],
+                    c=metrics["grad_metric"],
+                    cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("Grads cosine dist", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+        self._experiment.log_figure("loss_grads_diff_{}".format(self._epoch), g)
+        plt.close(g)
+
+        g = plt.figure(figsize=(16, 8))
+        metrics["grad_true"] = np.array(metrics["grad_true"])
+        metrics["grad_fake"] = np.array(metrics["grad_fake"])
+
+        ax = plt.subplot(1,2,1)
+        plt.quiver(psis[:, 0],
+                   psis[:, 1],
+                   -metrics["grad_true"][:, 0],
+                   -metrics["grad_true"][:, 1],
+                   np.linalg.norm(metrics["grad_true"],axis=1),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("True grads", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+
+        ax = plt.subplot(1,2,2)
+        plt.quiver(psis[:, 0],
+                   psis[:, 1],
+                   -metrics["grad_fake"][:, 0],
+                   -metrics["grad_fake"][:, 1],
+                   np.linalg.norm(metrics["grad_fake"],axis=1),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("GAN grads", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+        self._experiment.log_figure("grads_{}".format(self._epoch), g)
+        plt.close(g)
 
 class GANLogger(object):
     def __init__(self, experiment):
