@@ -203,7 +203,7 @@ class BaseLogger(ABC):
                                    step_data_gen=step_data_gen,
                                    num_repetitions=num_repetitions)
 
-        mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy()
+        mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy().astype(bool)
         for key in list(metrics):
             metrics[key + "_inside"] = np.array(metrics[key])[mask_in]
             metrics[key + "_outside"] = np.array(metrics[key])[~mask_in]
