@@ -128,7 +128,12 @@ def end_to_end_training(epochs: int,
         logger.log_oracle(oracle=model,
                           y_sampler=y_sampler,
                           current_psi=current_psi,
-                          step_data_gen=step_data_gen)
+                          step_data_gen=step_data_gen,
+                          scale_step=3,
+                          num_samples=2000,
+                          num_repetitions=2000
+                          )
+        torch.cuda.empty_cache()
 
     return xs
 
