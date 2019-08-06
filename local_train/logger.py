@@ -10,9 +10,10 @@ import numpy as np
 import torch
 import sys
 sys.path.append('../')
-from utils import generate_local_data_lhs
 from tqdm import tqdm
 from model import YModel
+from utils import Metrics
+import pyro.distributions as dist
 from pyDOE import lhs
 import time
 
@@ -483,9 +484,46 @@ class GANLogger(object):
     def __init__(self, experiment):
         self._experiment = experiment
         self._epoch = 0
+        self.metric_calc = Metrics((-10, 10), 100)
+
+    def add_up_epoch(self):
+        self._epoch += 1
 
     def log_losses(self, losses):
         self._experiment.log_metric("d_loss", np.mean(losses[0]), step=self._epoch)
         self._experiment.log_metric("g_loss", np.mean(losses[1]), step=self._epoch)
-        self._epoch += 1
 
+    def log_validation_metrics(self, y_sampler, data, init_conditions, gan_model, psi_range, n_psi_samples=100, per_psi_sample_size=2000):
+        js = []
+        ks = []
+
+        if (self._epoch + 0) % 5 == 0:
+            psi_grid = dist.Uniform(*psi_range).sample([n_psi_samples]).to(gan_model.device)
+            x = y_sampler.sample_x(per_psi_sample_size * n_psi_samples).to(gan_model.device)
+            psi = psi_grid.repeat(1, per_psi_sample_size).view(-1, len(psi_range[0]))
+
+            gen_samples = gan_model.generate(torch.cat([psi, x], dim=1).to(gan_model.device)).detach().cpu()
+            y_sampler.make_condition_sample({"mu": psi, "x": x})
+            true_samples = y_sampler.condition_sample(1).cpu()
+
+            for step in range(0, len(psi), per_psi_sample_size):
+                js.append(self.metric_calc.compute_JS(true_samples[step: step + per_psi_sample_size],
+                                                 gen_samples[step: step + per_psi_sample_size]).item())
+                ks.append(self.metric_calc.compute_KSStat(true_samples.numpy()[step: step + per_psi_sample_size],
+                                                     gen_samples.numpy()[step: step + per_psi_sample_size]).item())
+            self._experiment.log_metric("average_mu_JS", np.mean(js), step=self._epoch)
+            self._experiment.log_metric("average_mu_KS", np.mean(ks), step=self._epoch)
+
+        train_data_js = self.metric_calc.compute_JS(data.cpu(), gan_model.generate(init_conditions).detach().cpu())
+        train_data_ks = self.metric_calc.compute_KSStat(data.cpu().numpy(),
+                                                   gan_model.generate(init_conditions).detach().cpu().numpy())
+
+        self._experiment.log_metric("train_data_JS", train_data_js, step=self._epoch)
+        self._experiment.log_metric("train_data_KS", train_data_ks, step=self._epoch)
+        for order in range(1, 4):
+            moment_of_true = self.metric_calc.compute_moment(data.cpu(), order)
+            moment_of_generated = self.metric_calc.compute_moment(gan_model.generate(init_conditions).detach().cpu(),
+                                                     order)
+            metric_diff = moment_of_true - moment_of_generated
+
+            self._experiment.log_metric("train_data_diff_order_" + str(order), metric_diff, step=self._epoch)
