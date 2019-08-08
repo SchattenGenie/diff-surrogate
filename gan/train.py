@@ -43,7 +43,7 @@ os.environ['LIBRARY_PATH'] = '/usr/local/cuda/lib64'
 INST_NOISE_STD = 0.3
 
 
-PROJ_NAME = "10d_grads"
+PROJ_NAME = "10d_global_lhc"
 #PATH = "./snapshots/" + PROJ_NAME + "_" + snapshot_name + ".tar"
 PATH = os.path.expanduser("~/data/diff_gen_data/data_size/{}".format(n_epochs))
 if not os.path.exists(os.path.expanduser(PATH)):
@@ -62,9 +62,9 @@ hyper_params = {
     "mu_dim": 10,
     "x_dim": 1,
     "current_psi": torch.Tensor([*current_psi]).reshape(1, -1),
-    "grad_step": 2,
-    "n_lhc_samples": 20,
-    "n_samples_per_dim": 2000
+    "grad_step": 10,
+    "n_lhc_samples": 50,
+    "n_samples_per_dim": 3000
 }
 hyper_params["mu_range"] = (hyper_params["current_psi"].view(-1) - hyper_params["grad_step"],
                             hyper_params["current_psi"].view(-1) + hyper_params["grad_step"])
