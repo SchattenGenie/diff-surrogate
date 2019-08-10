@@ -193,11 +193,6 @@ class BaseLogger(ABC):
                     metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
                     metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
 
-        mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy().astype(bool)
-        for key in list(metrics):
-            metrics[key + "_inside"] = np.array(metrics[key])[mask_in]
-            metrics[key + "_outside"] = np.array(metrics[key])[~mask_in]
-
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=100,
             step=step_data_gen,
