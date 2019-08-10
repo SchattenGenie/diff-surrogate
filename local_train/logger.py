@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from collections import defaultdict
 from sklearn.metrics import auc
 from scipy.spatial.distance import cosine
@@ -9,11 +10,15 @@ import numpy as np
 import torch
 import sys
 sys.path.append('../')
-from utils import generate_local_data_lhs
 from tqdm import tqdm
 from model import YModel
+from utils import Metrics
+import pyro.distributions as dist
 from pyDOE import lhs
 import time
+
+my_cmap = plt.cm.jet
+my_cmap.set_under('white')
 
 
 # https://scipy-cookbook.readthedocs.io/items/SignalSmooth.html
@@ -144,7 +149,6 @@ class BaseLogger(ABC):
                 PRD score of generated samples outside of training region
         """
         metrics = defaultdict(list)
-        num_samples = 90
         psi_dim = current_psi.shape[0]  # y_sampler._psi_dim
         psis_inside = torch.tensor(lhs(len(current_psi), num_samples)).float().to(current_psi.device)
         psis_inside = step_data_gen * (psis_inside * 2 - 1) + current_psi.view(1, -1)
@@ -188,6 +192,11 @@ class BaseLogger(ABC):
                         num_repetitions=num_repetitions)
                     metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
                     metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
+
+        mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy().astype(bool)
+        for key in list(metrics):
+            metrics[key + "_inside"] = np.array(metrics[key])[mask_in]
+            metrics[key + "_outside"] = np.array(metrics[key])[~mask_in]
 
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=100,
@@ -377,6 +386,9 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('PRD inside', auc(metrics["precision_inside"], metrics["recall_inside"]), step=self._epoch)
         self._experiment.log_metric('PRD outside', auc(metrics["precision_outside"], metrics["recall_outside"]), step=self._epoch)
 
+        if len(current_psi) == 2:
+            self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
+
     def log_performance(self, y_sampler, current_psi):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
@@ -390,14 +402,117 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Psi grad norm', np.linalg.norm(psi_grad), step=self._epoch)
         self._epoch += 1
 
+    def log_grads_2d(self, psis, metrics, current_psi, step_data_gen):
+        g = plt.figure(figsize=(16, 8))
+
+        ax = plt.subplot(1, 2, 1)
+        plt.scatter(psis[:, 0],
+                    psis[:, 1],
+                    c=metrics["func_metric"],
+                    cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("Loss relative diff", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+
+        ax = plt.subplot(1, 2, 2)
+        plt.scatter(psis[:, 0],
+                    psis[:, 1],
+                    c=metrics["grad_metric"],
+                    cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("Grads cosine dist", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+        self._experiment.log_figure("loss_grads_diff_{}".format(self._epoch), g)
+        plt.close(g)
+
+        g = plt.figure(figsize=(16, 8))
+        metrics["grad_true"] = np.array(metrics["grad_true"])
+        metrics["grad_fake"] = np.array(metrics["grad_fake"])
+
+        ax = plt.subplot(1,2,1)
+        plt.quiver(psis[:, 0],
+                   psis[:, 1],
+                   -metrics["grad_true"][:, 0],
+                   -metrics["grad_true"][:, 1],
+                   np.linalg.norm(metrics["grad_true"],axis=1),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("True grads", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+
+        ax = plt.subplot(1,2,2)
+        plt.quiver(psis[:, 0],
+                   psis[:, 1],
+                   -metrics["grad_fake"][:, 0],
+                   -metrics["grad_fake"][:, 1],
+                   np.linalg.norm(metrics["grad_fake"],axis=1),
+                   cmap=my_cmap)
+        plt.colorbar()
+        plt.xlabel(f"$\psi_1$", fontsize=19)
+        plt.ylabel(f"$\psi_2$", fontsize=19)
+        plt.title("GAN grads", fontsize=15)
+        rect = patches.Rectangle(current_psi.detach().cpu() - step_data_gen, step_data_gen * 2, step_data_gen * 2,
+                                 linewidth=3, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+        self._experiment.log_figure("grads_{}".format(self._epoch), g)
+        plt.close(g)
 
 class GANLogger(object):
     def __init__(self, experiment):
         self._experiment = experiment
         self._epoch = 0
+        self.metric_calc = Metrics((-10, 10), 100)
+
+    def add_up_epoch(self):
+        self._epoch += 1
 
     def log_losses(self, losses):
         self._experiment.log_metric("d_loss", np.mean(losses[0]), step=self._epoch)
         self._experiment.log_metric("g_loss", np.mean(losses[1]), step=self._epoch)
-        self._epoch += 1
 
+    def log_validation_metrics(self, y_sampler, data, init_conditions, gan_model, psi_range, n_psi_samples=100, per_psi_sample_size=2000):
+        js = []
+        ks = []
+
+        if (self._epoch + 0) % 5 == 0:
+            psi_grid = dist.Uniform(*psi_range).sample([n_psi_samples]).to(gan_model.device)
+            x = y_sampler.sample_x(per_psi_sample_size * n_psi_samples).to(gan_model.device)
+            psi = psi_grid.repeat(1, per_psi_sample_size).view(-1, len(psi_range[0]))
+
+            gen_samples = gan_model.generate(torch.cat([psi, x], dim=1).to(gan_model.device)).detach().cpu()
+            y_sampler.make_condition_sample({"mu": psi, "x": x})
+            true_samples = y_sampler.condition_sample(1).cpu()
+
+            for step in range(0, len(psi), per_psi_sample_size):
+                js.append(self.metric_calc.compute_JS(true_samples[step: step + per_psi_sample_size],
+                                                 gen_samples[step: step + per_psi_sample_size]).item())
+                ks.append(self.metric_calc.compute_KSStat(true_samples.numpy()[step: step + per_psi_sample_size],
+                                                     gen_samples.numpy()[step: step + per_psi_sample_size]).item())
+            self._experiment.log_metric("average_mu_JS", np.mean(js), step=self._epoch)
+            self._experiment.log_metric("average_mu_KS", np.mean(ks), step=self._epoch)
+
+        train_data_js = self.metric_calc.compute_JS(data.cpu(), gan_model.generate(init_conditions).detach().cpu())
+        train_data_ks = self.metric_calc.compute_KSStat(data.cpu().numpy(),
+                                                   gan_model.generate(init_conditions).detach().cpu().numpy())
+
+        self._experiment.log_metric("train_data_JS", train_data_js, step=self._epoch)
+        self._experiment.log_metric("train_data_KS", train_data_ks, step=self._epoch)
+        for order in range(1, 4):
+            moment_of_true = self.metric_calc.compute_moment(data.cpu(), order)
+            moment_of_generated = self.metric_calc.compute_moment(gan_model.generate(init_conditions).detach().cpu(),
+                                                     order)
+            metric_diff = moment_of_true - moment_of_generated
+
+            self._experiment.log_metric("train_data_diff_order_" + str(order), metric_diff, step=self._epoch)

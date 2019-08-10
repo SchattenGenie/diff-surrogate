@@ -1,4 +1,4 @@
-[submodule "local_train/ffjord"] 
+[submodule "local_train/ffjord"]
   path = local_train/ffjord
   url = git@github.com:SchattenGenie/ffjord.git
 [submodule "ffjord/ffjord"]

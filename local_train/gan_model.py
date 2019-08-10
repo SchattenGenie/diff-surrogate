@@ -104,6 +104,10 @@ class GANModel(BaseConditionalGenerationOracle):
 
             if self.logger:
                 self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
+                self.logger.log_validation_metrics(self._y_model, y, condition, self,
+                                                   (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
+                                                    condition[:, :self._psi_dim].max(dim=0)[0].view(-1)))
+                self.logger.add_up_epoch()
 
         return self
 
