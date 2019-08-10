@@ -8,6 +8,8 @@ import ffjord.lib.utils as utils
 from ffjord.lib.visualize_flow import visualize_transform
 import ffjord.lib.layers.odefunc as odefunc
 from ffjord.train_misc import standard_normal_logprob
+from torchdiffeq import odeint_adjoint
+from torchdiffeq import odeint
 from ffjord.custom_model import build_model_tabular, get_transforms, compute_loss
 import lib.layers as layers
 from typing import Tuple
@@ -65,3 +67,15 @@ class FFJORDModel(BaseConditionalGenerationOracle):
 
     def log_density(self, y, condition):
         return self._density_fn(y, condition)
+
+    def train(self):
+        super().train()
+        for module in self._model.modules():
+            if hasattr(module, 'odeint'):
+                module.__setattr__('odeint', odeint_adjoint)
+
+    def eval(self):
+        super().train()
+        for module in self._model.modules():
+            if hasattr(module, 'odeint'):
+                module.__setattr__('odeint', odeint)
