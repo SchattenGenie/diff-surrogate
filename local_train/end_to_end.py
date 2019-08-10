@@ -6,9 +6,10 @@ import torch
 import numpy as np
 sys.path.append('../')
 from typing import List, Union
-from model import YModel
+from model import YModel, RosenbrockModel, MultimodalSingularityModel
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
+from linear_model import LinearModelOnPsi
 from optimizer import *
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
@@ -44,6 +45,7 @@ def str_to_class(classname: str):
 def end_to_end_training(epochs: int,
                         model_cls: BaseConditionalGenerationOracle,
                         optimizer_cls: BaseOptimizer,
+                        optimized_function_cls: BaseConditionalGenerationOracle,
                         logger: BaseLogger,
                         model_config: dict,
                         optimizer_config: dict,
@@ -77,7 +79,7 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
-    y_sampler = YModel(device=device, psi_init=current_psi)
+    y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config).to(device)
     optimizer = optimizer_cls(oracle=model,
                               x=current_psi,
@@ -108,6 +110,8 @@ def end_to_end_training(epochs: int,
             model = model_cls(y_model=y_sampler, **model_config).to(device)
             model.fit(x, condition=condition)
 
+        model.eval()
+
         if reuse_optimizer:
             optimizer.update(oracle=model,
                              x=current_psi)
@@ -121,22 +125,26 @@ def end_to_end_training(epochs: int,
         # with torch.no_grad(): current_psi += shift
 
         print(current_psi, status)
-        # logging optimization, i.e. statistics of psi
-        logger.log_performance(y_sampler=y_sampler,
-                               current_psi=current_psi)
-        logger.log_optimizer(optimizer)
-        logger.log_oracle(oracle=model,
-                          y_sampler=y_sampler,
-                          current_psi=current_psi,
-                          step_data_gen=step_data_gen)
+        try:
+            # logging optimization, i.e. statistics of psi
+            logger.log_performance(y_sampler=y_sampler,
+                                   current_psi=current_psi)
+            logger.log_optimizer(optimizer)
+            logger.log_oracle(oracle=model,
+                              y_sampler=y_sampler,
+                              current_psi=current_psi,
+                              step_data_gen=step_data_gen)
+        except Exception as e:
+            print(e)
 
-    return xs
+    return
 
 
 @click.command()
 @click.option('--model', type=str, default='GANModel')
 @click.option('--optimizer', type=str, default='GradientDescentOptimizer')
 @click.option('--logger', type=str, default='CometLogger')
+@click.option('--optimized_function', type=str, default='YModel')
 @click.option('--model_config_file', type=str, default='gan_config')
 @click.option('--optimizer_config_file', type=str, default='optimizer_config')
 @click.option('--project_name', type=str, prompt='Enter project name')
@@ -154,6 +162,7 @@ def end_to_end_training(epochs: int,
 def main(model,
          optimizer,
          logger,
+         optimized_function,
          project_name,
          work_space,
          tags,
@@ -176,6 +185,7 @@ def main(model,
     model_config['psi_dim'] = psi_dim
     optimizer_config['x_step'] = step_data_gen
 
+    optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)
     optimizer_cls = str_to_class(optimizer)
 
@@ -203,6 +213,7 @@ def main(model,
         epochs=epochs,
         model_cls=model_cls,
         optimizer_cls=optimizer_cls,
+        optimized_function_cls=optimized_function_cls,
         logger=logger,
         model_config=model_config,
         optimizer_config=optimizer_config,
