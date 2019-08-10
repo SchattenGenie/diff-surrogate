@@ -240,7 +240,7 @@ class LBFGSOptimizer(BaseOptimizer):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  lr: float = 1e-1,
-                 memory_size: int = 10,
+                 memory_size: int = 20,
                  line_search_options: dict = None,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
@@ -393,3 +393,79 @@ class TorchOptimizer(BaseOptimizer):
                 torch.isfinite(f_k).all() and
                 torch.isfinite(self._d_k).all()):
             return COMP_ERROR
+
+
+class GPOptimizer(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1.,
+                 base_estimator="gp",
+                 acq_func='gp_hedge',
+                 acq_optimizer="sampling",
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        from skopt import Optimizer
+        self._x.requires_grad_(True)
+        self._lr = lr
+        self._alpha_k = self._lr
+        self._opt_result = None
+        borders = []
+        x_step = self._x_step
+        if x_step is None:
+            x_step = self._lr
+        for xi in x.detach().cpu().numpy():
+            borders.append((xi - x_step, xi + x_step))
+        self._base_optimizer = Optimizer(borders,
+                                         base_estimator=base_estimator,
+                                         acq_func=acq_func,
+                                         acq_optimizer=acq_optimizer)
+
+
+    def optimize(self):
+        # d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach().cpu().numpy()
+        f_k = self._oracle.func(self._x, num_repetitions=self._num_repetitions).item()
+        self._base_optimizer.tell(
+            self.bound_x(self._x.detach().cpu().numpy().tolist()),
+            f_k
+        )
+        x, status, history = super().optimize()
+        self._x = torch.tensor(self._opt_result.x).float().to(self._oracle.device)
+        return self._x.detach().clone(), status, history
+
+    def bound_x(self, x):
+        x_new = []
+        for xi, space in zip(x, self._base_optimizer.space):
+            if xi in space:
+                pass
+            else:
+                xi = np.clip(xi, space.low + 1e-3, space.high - 1e-3)
+            x_new.append(xi)
+        return x_new
+
+    def _step(self):
+        init_time = time.time()
+
+        x_k = self._base_optimizer.ask()
+        x_k = torch.tensor(x_k).float().to(self._oracle.device)
+        d_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions) # .detach().cpu().numpy()
+        f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
+
+        self._opt_result = self._base_optimizer.tell(
+            self.bound_x(x_k.detach().cpu().numpy().tolist()),
+            f_k.item()
+        )
+        self._x = x_k.detach().clone()
+        super()._post_step(init_time)
+        grad_norm = torch.norm(d_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
+
+
+
+class HMCOptimizer(BaseLogger):
+    pass
