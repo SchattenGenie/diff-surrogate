@@ -121,6 +121,19 @@ class YModel(BaseConditionalGenerationOracle):
         return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
 
+class RosenbrockModel(YModel):
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+
+class MultimodalSingularityModel(YModel):
+    @staticmethod
+    def g(x):
+        return x.abs().sum(dim=1, keepdim=True) * ((-x.pow(2).sin().sum(dim=1, keepdim=True)).exp())
+
+
 class OptLoss(object):
     def __init__(self):
         pass
