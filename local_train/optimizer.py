@@ -3,7 +3,9 @@ import numpy as np
 from base_model import BaseConditionalGenerationOracle
 from numpy.linalg import LinAlgError
 from line_search_tool import LineSearchTool, get_line_search_tool
+from pyro import distributions as dist
 from torch import optim
+from torch import nn
 from logger import BaseLogger
 from collections import defaultdict
 import copy
@@ -466,6 +468,86 @@ class GPOptimizer(BaseOptimizer):
             return COMP_ERROR
 
 
+device = torch.device('cuda:3')
 
-class HMCOptimizer(BaseLogger):
-    pass
+
+class HybridMC(nn.Module):
+    def __init__(self,
+                 model: BaseConditionalGenerationOracle,
+                 l: int,
+                 epsilon: float,
+                 q: torch.Tensor,
+                 num_repetitions: int,
+                 covariance='unit',
+                 t=1.):
+        super(HybridMC, self).__init__()
+        self._model = model
+        self._epsilon = epsilon
+        self._q = torch.tensor(q).float()
+        self._dim_q = len(self._q)
+        self._p = torch.zeros_like(self._q).to(model.device)
+        self._num_repetitions = num_repetitions
+        self._l = l
+        self._t = t
+        if covariance == 'unit':
+            self._mean_p = torch.zeros(self._dim_q).to(model.device)
+            self._cov_p = torch.eye(self._dim_q).to(model.device)
+
+    def step(self, t=1.):
+        self._t = t
+        self._p = dist.MultivariateNormal(self._mean_p, covariance_matrix=self._cov_p).sample()
+        q_old = self._q.clone().detach()
+        p_old = self._p.clone().detach()
+        # leap frogs steps
+        for i in range(self._l):
+            self._p = self._p - (self._epsilon / 2) * self._model.grad(self._q, num_repetitions=self._num_repetitions)
+            self._q = self._q + self._epsilon * self._p
+            self._p = self._p - (self._epsilon / 2) * self._model.grad(self._q, num_repetitions=self._num_repetitions)
+
+        # metropolis acceptance step
+        with torch.no_grad():
+            H_end = (self._model.func(self._q, num_repetitions=self._num_repetitions) / self._t + self._p.pow(2).sum()).item()
+            H_start = (self._model.func(q_old, num_repetitions=self._num_repetitions) / self._t + p_old.pow(2).sum()).item()
+
+        acc_prob = min(1, np.exp(H_start - H_end))
+        if not np.random.binomial(1, acc_prob):
+            self._q = q_old.clone().detach()
+        return self._q
+
+
+class HMCOptimizer(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1e-1,
+                 l: int = 20,
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        self._x.requires_grad_(True)
+        self._lr = lr
+        self._alpha_k = self._lr
+        self._base_optimizer = HybridMC(model=oracle,
+                                        epsilon=lr,
+                                        l=l,
+                                        num_repetitions=self._num_repetitions,
+                                        q=self._x.detach().clone())
+
+    def _step(self):
+        init_time = time.time()
+
+        x_k = self._base_optimizer.step()
+        self._x = x_k.clone().detach()
+        d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
+        f_k = self._oracle.func(self._x, num_repetitions=self._num_repetitions).detach()
+        self._x.grad = d_k
+        self._base_optimizer.step()
+        self._base_optimizer.zero_grad()
+
+        super()._post_step(init_time)
+        grad_norm = torch.norm(d_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
