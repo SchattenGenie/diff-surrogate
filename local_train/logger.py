@@ -11,7 +11,6 @@ import torch
 import sys
 sys.path.append('../')
 from tqdm import tqdm
-from model import YModel
 from utils import Metrics
 import pyro.distributions as dist
 from pyDOE import lhs
@@ -126,7 +125,7 @@ class BaseLogger(ABC):
                    current_psi: torch.Tensor,
                    step_data_gen: float,
                    scale_step: int = 2,
-                   num_samples: int = 1000,
+                   num_samples: int = 100,
                    num_repetitions: int = 2000,
                    calc_hessian_metrics: bool = False):
         """
@@ -290,7 +289,7 @@ class SimpleLogger(BaseLogger):
                    current_psi,
                    step_data_gen,
                    scale_step=2,
-                   num_samples=1000,
+                   num_samples=100,
                    num_repetitions=2000):
         metrics = super().log_oracle(oracle=oracle, y_sampler=y_sampler,
                                     current_psi=current_psi, step_data_gen=step_data_gen,
@@ -370,7 +369,7 @@ class CometLogger(SimpleLogger):
                    current_psi,
                    step_data_gen,
                    scale_step=2,
-                   num_samples=1000,
+                   num_samples=100,
                    num_repetitions=2000):
         metrics, figure = super().log_oracle(oracle=oracle, y_sampler=y_sampler,
                                              current_psi=current_psi, step_data_gen=step_data_gen,
