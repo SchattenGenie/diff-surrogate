@@ -122,6 +122,18 @@ class YModel(BaseConditionalGenerationOracle):
 
 
 class RosenbrockModel(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
     @staticmethod
     def g(x):
         return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
@@ -129,6 +141,18 @@ class RosenbrockModel(YModel):
 
 
 class MultimodalSingularityModel(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
     @staticmethod
     def g(x):
         return x.abs().sum(dim=1, keepdim=True) * ((-x.pow(2).sin().sum(dim=1, keepdim=True)).exp())
