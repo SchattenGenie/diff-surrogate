@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.autograd import grad
 from hessian import hessian as hessian_calc
 import sys
@@ -55,6 +56,21 @@ class BaseConditionalGeneratorModel(nn.Module, ABC):
         raise NotImplementedError('log_density is not implemented.')
 
 
+def average_block_wise(x, num_repetitions):
+    n = x.shape[0]
+    if len(x.shape) == 1:
+        return F.avg_pool1d(x.view(1, 1, n),
+                            kernel_size=num_repetitions,
+                            stride=num_repetitions).view(-1)
+    elif len(x.shape) == 2:
+        cols = x.shape[1]
+        return F.avg_pool1d(x.view(1, cols, n),
+                            kernel_size=num_repetitions,
+                            stride=num_repetitions).view(-1, cols)
+    else:
+        NotImplementedError("average_block_wise do not support >2D tensors")
+
+
 class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
     """
     Base class for implementation of loss oracle.
@@ -81,15 +97,22 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         """
         condition = condition.to(self.device)
         if isinstance(num_repetitions, int):
-            # assert len(condition.size()) == 1
-            conditions = condition.repeat(num_repetitions, 1)
+            if len(condition.size()) == 1:
+                conditions = condition.repeat(num_repetitions, 1)
+            else:
+                n = len(condition)
+                conditions = condition.repeat(1, num_repetitions).view(num_repetitions * n, -1)
             conditions = torch.cat([
                 conditions,
                 self._y_model.sample_x(len(conditions)).to(self.device)
             ], dim=1)
             y = self.generate(conditions)
-            loss = self._y_model.loss(y=y).sum() / num_repetitions
-            return loss
+            loss = self._y_model.loss(y=y)
+            if len(condition.size()) == 1:
+                return loss.mean()
+            else:
+                loss = average_block_wise(loss, num_repetitions=num_repetitions)
+                return loss
         else:
             condition = torch.cat([
                 condition,
@@ -113,8 +136,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
-            # assert len(condition.size()) == 1
-            return grad([self.func(condition, num_repetitions=num_repetitions)], [condition])[0]
+            return grad([self.func(condition, num_repetitions=num_repetitions).mean()], [condition])[0]
         else:
             return grad([self.func(condition).mean()], [condition])[0]
 
@@ -130,8 +152,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
-            # assert len(condition.size()) == 1
-            return hessian_calc(self.func(condition, num_repetitions=num_repetitions), condition)
+            return hessian_calc(self.func(condition, num_repetitions=num_repetitions).mean(), condition)
         else:
             return hessian_calc(self.func(condition).mean(), condition)
 
