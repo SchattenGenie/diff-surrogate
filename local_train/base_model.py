@@ -81,6 +81,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         self._psi_dim = psi_dim
         self._x_dim = x_dim
         self._y_dim = y_dim
+        self._n_calls = 0
 
     @property
     def _y_model(self):
@@ -91,10 +92,10 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         Computes the value of function with specified condition.
         :param condition: torch.Tensor
             condition of models, i.e. psi
-            # TODO: rename condition -> psi?
         :param num_repetitions:
         :return:
         """
+        self._n_calls += 1
         condition = condition.to(self.device)
         if isinstance(num_repetitions, int):
             if len(condition.size()) == 1:
