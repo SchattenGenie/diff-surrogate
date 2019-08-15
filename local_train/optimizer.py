@@ -44,10 +44,14 @@ class BaseOptimizer(ABC):
         self._num_repetitions = num_repetitions
         self._num_iter = 0.
         self._alpha_k = 0.
+        self._previous_n_calls = 0
 
     def _update_history(self, init_time):
         self._history['time'].append(
             time.time() - init_time
+        )
+        self._history['func_evals'].append(
+            self._oracle._n_calls - self._previous_n_calls
         )
         self._history['func'].append(
             self._oracle.func(self._x,
@@ -63,6 +67,7 @@ class BaseOptimizer(ABC):
         self._history['alpha'].append(
             self._alpha_k
         )
+        self._previous_n_calls = self._oracle._n_calls
 
     def optimize(self):
         """
@@ -292,7 +297,7 @@ class LBFGSOptimizer(BaseOptimizer):
         if len(self._sy_history) > self._memory_size:
             self._sy_history.pop(0)
 
-        super()._post_step(init_time)
+        super()._post_step(init_time=init_time)
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
             return SUCCESS
@@ -423,9 +428,7 @@ class GPOptimizer(BaseOptimizer):
                                          acq_func=acq_func,
                                          acq_optimizer=acq_optimizer)
 
-
     def optimize(self):
-        # d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach().cpu().numpy()
         f_k = self._oracle.func(self._x, num_repetitions=self._num_repetitions).item()
         self._base_optimizer.tell(
             self.bound_x(self._x.detach().cpu().numpy().tolist()),
@@ -450,21 +453,19 @@ class GPOptimizer(BaseOptimizer):
 
         x_k = self._base_optimizer.ask()
         x_k = torch.tensor(x_k).float().to(self._oracle.device)
-        d_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions) # .detach().cpu().numpy()
         f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
 
         self._opt_result = self._base_optimizer.tell(
             self.bound_x(x_k.detach().cpu().numpy().tolist()),
             f_k.item()
         )
-        self._x = x_k.detach().clone()
+        self._x = torch.tensor(self._opt_result['x']).float().to(self._oracle.device)# x_k.detach().clone()
         super()._post_step(init_time)
-        grad_norm = torch.norm(d_k).item()
-        if grad_norm < self._tolerance:
-            return SUCCESS
+        # grad_norm = torch.norm(d_k).item()
+        # if grad_norm < self._tolerance:
+        #     return SUCCESS
         if not (torch.isfinite(x_k).all() and
-                torch.isfinite(f_k).all() and
-                torch.isfinite(d_k).all()):
+                torch.isfinite(f_k).all()):
             return COMP_ERROR
 
 
