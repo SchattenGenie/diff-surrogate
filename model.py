@@ -49,7 +49,7 @@ class YModel(BaseConditionalGenerationOracle):
         return pyro.sample('mu', self._psi_dist, torch.Size([sample_size])).to(self.device)
 
     def sample_x(self, sample_size):
-        return pyro.sample('x', self._x_dist, torch.Size([sample_size])).to(self.device).view(-1, 1)
+        return pyro.sample('x', self._x_dist, torch.Size([sample_size])).to(self.device).view(-1, self._x_dim)
 
     def _generate_dist(self, psi, x):
         latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
@@ -156,6 +156,39 @@ class MultimodalSingularityModel(YModel):
     @staticmethod
     def g(x):
         return x.abs().sum(dim=1, keepdim=True) * ((-x.pow(2).sin().sum(dim=1, keepdim=True)).exp())
+
+
+class GaussianMixtureHumpModel(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=torch.Tensor(((-2, 0), (2, 5))),
+                 x_dim=2, y_dim=2):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+
+    def _generate_dist(self, psi, x):
+        return self.mixture_model(psi, x)
+
+    def _generate(self, psi, x):
+        y_1 = pyro.sample('y', self._generate_dist(torch.abs(psi), x))
+        # sign = psi.sign() # (sign[:,0] * sign[:,1]).view(-1,1) *
+        y_2 = pyro.sample("y_2", dist.Normal(psi.norm(dim=1, keepdim=True) , 1))
+        return torch.cat([y_1, y_2], dim=1)
+
+    def mixture_model(self, weights, x, K=2):
+        locs = pyro.sample('locs', dist.Normal(x, 1.)).to(self.device)
+        #scales = pyro.sample('scale', dist.LogNormal(0., 2), torch.Size([len(x)])).view(-1, 1).to(self.device)
+        assignment = pyro.sample('assignment', dist.Categorical(weights))
+        return dist.Normal(locs.gather(1, assignment.unsqueeze(1)), 1)
+
+    # Three hump function http://benchmarkfcns.xyz/2-dimensional
+    def loss(self, y):
+        return 2 * y[:, 0] ** 2 - 1.05 * y[:, 0] ** 4 + y[:, 0] ** 6 / 6 + y[:,0] * y[:,1] + y[:, 1] ** 2
 
 
 class OptLoss(object):
