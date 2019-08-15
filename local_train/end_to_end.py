@@ -128,7 +128,8 @@ def end_to_end_training(epochs: int,
         try:
             # logging optimization, i.e. statistics of psi
             logger.log_performance(y_sampler=y_sampler,
-                                   current_psi=current_psi)
+                                   current_psi=current_psi,
+                                   n_samples=n_samples)
             logger.log_optimizer(optimizer)
             logger.log_oracle(oracle=model,
                               y_sampler=y_sampler,
