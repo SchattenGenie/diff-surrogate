@@ -90,6 +90,7 @@ class BaseLogger(ABC):
         self._optimizer_logs['grad'].extend(history['grad'])
         self._optimizer_logs['time'].extend(history['time'])
         self._optimizer_logs['alpha'].extend(history['alpha'])
+        self._optimizer_logs['func_evals'].extend(history['func_evals'])
         return None
 
     @staticmethod
@@ -223,10 +224,10 @@ class BaseLogger(ABC):
         return metrics
 
     @abstractmethod
-    def log_performance(self, y_sampler, current_psi):
+    def log_performance(self, y_sampler, current_psi, n_samples):
         self._perfomance_logs['time'].append(time.time() - self._time)
         self._time = time.time()
-        print(current_psi)
+        self._perfomance_logs['n_samples'].append(n_samples)
         self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=5000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
         self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000).detach().cpu().numpy())
@@ -245,7 +246,7 @@ class SimpleLogger(BaseLogger):
     def log_optimizer(self, optimizer):
         super().log_optimizer(optimizer)
 
-        figure, axs = plt.subplots(2, 2, figsize=(18, 18))
+        figure, axs = plt.subplots(3, 2, figsize=(9 * 2, 9 * 3))
 
         losses = np.array(self._optimizer_logs['func'])
         axs[0][0].plot(losses)
@@ -265,8 +266,9 @@ class SimpleLogger(BaseLogger):
                        label='$| \mu |$')
         axs[0][1].set_title("Norm: {}".format(np.linalg.norm(xs[-1, :])))
 
-        alpha_k = np.array(self._optimizer_logs['alpha_k'])
-        axs[1][0].plot(alpha_k)
+        alpha = np.array(self._optimizer_logs['alpha'])
+        axs[1][0].plot(alpha)
+        axs[1][0].set_yscale('log')
         axs[1][0].grid()
         axs[1][0].set_ylabel("alpha_k", fontsize=19)
         axs[1][0].set_xlabel("iter", fontsize=19)
@@ -282,8 +284,21 @@ class SimpleLogger(BaseLogger):
         axs[1][1].set_xlabel("iter", fontsize=19)
         axs[1][1].set_title("Norm: {}".format(np.linalg.norm(ds[-1, :])))
 
+        func_evals = np.array(self._optimizer_logs['func_evals'])
+        axs[2][0].plot(func_evals)
+        axs[2][0].grid()
+        axs[2][0].set_ylabel("func evals", fontsize=19)
+        axs[2][0].set_xlabel("iter", fontsize=19)
+
+        time = np.array(self._optimizer_logs['time'])
+        axs[2][1].plot(time)
+        axs[2][1].grid()
+        axs[2][1].set_ylabel("time", fontsize=19)
+        axs[2][1].set_xlabel("iter", fontsize=19)
+
         figure.legend()
         return figure
+
 
     def log_oracle(self, oracle, y_sampler,
                    current_psi,
@@ -351,8 +366,8 @@ class SimpleLogger(BaseLogger):
 
         return metrics, figure
 
-    def log_performance(self, y_sampler, current_psi):
-        super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
+    def log_performance(self, y_sampler, current_psi, n_samples):
+        super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
 
 
 class CometLogger(SimpleLogger):
@@ -383,10 +398,12 @@ class CometLogger(SimpleLogger):
         if len(current_psi) == 2:
             self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
 
-    def log_performance(self, y_sampler, current_psi):
-        super().log_performance(y_sampler=y_sampler, current_psi=current_psi)
+    def log_performance(self, y_sampler, current_psi, n_samples):
+        super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
         self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
+        self._experiment.log_metric('Used samples', self._perfomance_logs['n_samples'][-1], step=self._epoch)
+        self._experiment.log_metric('Used samples cumm', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)
         psis = self._perfomance_logs['psi'][-1]
         self._experiment.log_metric('Psi norm', np.linalg.norm(psis), step=self._epoch)
         # for i, psi in enumerate(psis):
