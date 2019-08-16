@@ -1,4 +1,5 @@
 from comet_ml import Experiment
+import traceback
 import sys
 import os
 import click
@@ -137,6 +138,7 @@ def end_to_end_training(epochs: int,
                               step_data_gen=step_data_gen)
         except Exception as e:
             print(e)
+            print(print(traceback.format_exc()))
         torch.cuda.empty_cache()
 
     return
