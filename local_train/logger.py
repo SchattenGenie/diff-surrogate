@@ -94,16 +94,22 @@ class BaseLogger(ABC):
         return None
 
     @staticmethod
-    def calc_grad_metric_in_point(oracle, y_sampler, psi, num_repetitions):
-        grad_true = y_sampler.grad(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        grad_fake = oracle.grad(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        return cosine(grad_true, grad_fake)
+    def calc_grad_metric_in_points(oracle, y_sampler, psis, num_repetitions):
+        grad_true = y_sampler.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        grad_fake = oracle.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        return [cosine(grad_true_i, grad_fake_i)
+                for grad_true_i, grad_fake_i in zip(grad_true, grad_fake)]
 
     @staticmethod
-    def calc_func_metric_in_point(oracle, y_sampler, psi, num_repetitions):
-        y_true = y_sampler.func(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        y_fake = oracle.func(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        return np.abs((y_true - y_fake) / y_true)
+    def calc_func_metric_in_points(oracle, y_sampler, psis, num_repetitions):
+        psis = psis.detach().clone().repeat(1, num_repetitions).view(-1, psis.shape[1])
+        y_true = y_sampler.func(psis).detach().cpu().numpy()
+        y_true = [np.mean(y_true[i * num_repetitions: (i + 1) * num_repetitions])
+                  for i in range(len(psis) // num_repetitions)]
+        y_fake = oracle.func(psis).detach().cpu().numpy()
+        y_fake = [np.mean(y_fake[i * num_repetitions: (i + 1) * num_repetitions])
+                  for i in range(len(psis) // num_repetitions)]
+        return ((np.array(y_true) - np.array(y_fake)) / y_true).tolist()
 
     @staticmethod
     def calc_hessian_metric_in_point(oracle, y_sampler, psi, num_repetitions):
@@ -119,6 +125,32 @@ class BaseLogger(ABC):
             )
         return np.abs((eigvals_true - eigvals_fake) / eigvals_true).tolist(), cosine_distane_hessian
 
+    def _log_diff_metrics(self, oracle, y_sampler, metrics,
+                          psis, current_psi,
+                          step_data_gen, num_repetitions,
+                          calc_hessian=False):
+        metrics["grad_metric"].extend(
+            self.calc_grad_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                            psis=psis, num_repetitions=num_repetitions)
+        )
+        metrics["func_metric"].extend(
+            self.calc_func_metric_in_points(oracle=oracle, y_sampler=y_sampler,
+                                           psis=psis, num_repetitions=num_repetitions)
+        )
+
+        if len(current_psi) == 2:
+            metrics["grad_true"].extend(y_sampler.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy())
+            metrics["grad_fake"].extend(oracle.grad(psis, num_repetitions=num_repetitions).detach().cpu().numpy())
+
+        if calc_hessian:
+            eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_points(
+                oracle=oracle,
+                y_sampler=y_sampler,
+                psis=psis,
+                num_repetitions=num_repetitions)
+            metrics["eigenvalues_metric"].extend(eigenvalues_distances_hess)
+            metrics["eigenvectors_metric"].extend(eigenvectors_distanes_hess)    
+    
     @abstractmethod
     def log_oracle(self,
                    oracle,
@@ -157,41 +189,24 @@ class BaseLogger(ABC):
         psis_outside = scale_step * step_data_gen * (psis_outside * 2 - 1) + current_psi.view(1, -1)
 
         psis = torch.cat([psis_inside, psis_outside], dim=0)
-        for i, psi in tqdm(enumerate(psis)):
-            if (psi - current_psi).norm().item() < step_data_gen:
-                metrics["grad_metric_inside"].append(
-                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                metrics["func_metric_inside"].append(
-                    self.calc_func_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                if calc_hessian_metrics:
-                    eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(
-                        oracle=oracle,
-                        y_sampler=y_sampler,
-                        psi=psi,
-                        num_repetitions=num_repetitions)
-                    metrics["eigenvalues_metric_inside"].extend(eigenvalues_distances_hess)
-                    metrics["eigenvectrors_metric_inside"].extend(eigenvectors_distanes_hess)
-            else:
-                metrics["grad_metric_outside"].append(
-                    self.calc_grad_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                metrics["func_metric_outside"].append(
-                    self.calc_func_metric_in_point(oracle=oracle, y_sampler=y_sampler,
-                                                   psi=psi, num_repetitions=num_repetitions)
-                )
-                if calc_hessian_metrics:
-                    eigenvalues_distances_hess, eigenvectors_distanes_hess = self.calc_hessian_metric_in_point(
-                        oracle=oracle,
-                        y_sampler=y_sampler,
-                        psi=psi,
-                        num_repetitions=num_repetitions)
-                    metrics["eigenvalues_metric_outside"].extend(eigenvalues_distances_hess)
-                    metrics["eigenvectrors_metric_outside"].extend(eigenvectors_distanes_hess)
+        metrics["psis"] = psis.detach().cpu().numpy()
+        chunk_size = 1000
+        for i in tqdm(range(0, len(psis), chunk_size)):
+            print(i, chunk_size)
+            psis_batch = psis[i:i + chunk_size]
+            self._log_diff_metrics(oracle=oracle,
+                                   y_sampler=y_sampler,
+                                   metrics=metrics,
+                                   psis=psis_batch,
+                                   current_psi=current_psi,
+                                   step_data_gen=step_data_gen,
+                                   num_repetitions=num_repetitions,
+                                   calc_hessian=calc_hessian_metrics)
+
+        mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy().astype(bool)
+        for key in list(metrics):
+            metrics[key + "_inside"] = np.array(metrics[key])[mask_in]
+            metrics[key + "_outside"] = np.array(metrics[key])[~mask_in]
 
         data, conditions = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=100,
