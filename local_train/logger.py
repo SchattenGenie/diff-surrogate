@@ -289,6 +289,10 @@ class SimpleLogger(BaseLogger):
         axs[2][0].grid()
         axs[2][0].set_ylabel("func evals", fontsize=19)
         axs[2][0].set_xlabel("iter", fontsize=19)
+        axs2 = axs[2][0].twinx()
+        axs2.plot(np.cumsum(func_evals))
+        axs2.grid()
+
 
         time = np.array(self._optimizer_logs['time'])
         axs[2][1].plot(time)
