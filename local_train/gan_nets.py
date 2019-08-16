@@ -47,10 +47,10 @@ class Net(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, noise_dim, out_dim, psi_dim, hidden_dim=100, X_dim=1):
+    def __init__(self, noise_dim, out_dim, psi_dim, hidden_dim=100, x_dim=1):
         super(Generator, self).__init__()
         
-        self.fc1 = nn.Linear(noise_dim + X_dim + psi_dim, hidden_dim)
+        self.fc1 = nn.Linear(noise_dim + x_dim + psi_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc1.weight)
         nn.init.constant_(self.fc1.bias, 0.0)
         
@@ -89,11 +89,11 @@ class Discriminator(nn.Module):
                  psi_dim,
                  hidden_dim=100,
                  wasserstein=False,
-                 X_dim=1):
+                 x_dim=1):
         super(Discriminator, self).__init__()
         self._wasserstein = wasserstein
 
-        self.fc1 = nn.Linear(in_dim + X_dim + psi_dim, hidden_dim)
+        self.fc1 = nn.Linear(in_dim + x_dim + psi_dim, hidden_dim)
         nn.init.xavier_normal_(self.fc1.weight)
         nn.init.constant_(self.fc1.bias, 0.0)
         
