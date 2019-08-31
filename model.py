@@ -134,6 +134,7 @@ class RosenbrockModel(YModel):
         self._psi_dim = len(psi_init)
         self._device = device
         self.loss = loss
+
     @staticmethod
     def g(x):
         return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
@@ -190,6 +191,47 @@ class GaussianMixtureHumpModel(YModel):
         return 2 * y[:, 0] ** 2 - 1.05 * y[:, 0] ** 4 + y[:, 0] ** 6 / 6 + y[:,0] * y[:,1] + y[:, 1] ** 2
 
 
+class FreqModulatedSoundWave(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=torch.Tensor(((-2, 0), (2, 5))),
+                 x_dim=2, y_dim=2,
+                 loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+class LennardJonesPotentialProblem(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=torch.Tensor(((-2, 0), (2, 5))),
+                 x_dim=2, y_dim=2,
+                 loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+    
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+
 class OptLoss(object):
     def __init__(self):
         pass
@@ -205,3 +247,167 @@ class OptLoss(object):
     @staticmethod
     def TanhLoss(ys: torch.tensor, left_bound, right_bound):
         return -torch.mean(torch.tanh(ys - left_bound) - torch.tanh(ys - right_bound), dim=1)
+
+
+class SHiPModel(BaseConditionalGenerationOracle):
+    def __init__(self,
+                 device,
+                 psi_init: torch.Tensor,
+                 address: str = 'http://13.85.29.208:5432',
+                 cut_veto=100):
+        # super(YModel, self).__init__(y_model=None,
+        #                              psi_dim=len(psi_init),
+        #                              x_dim=3, y_dim=3) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self._cut_veto = cut_veto
+        self._address = address
+
+    def sample_x(self, num_repetitions):
+        p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
+        phi = np.random.uniform(low=0, high=2 * np.pi, size=num_repetitions)
+        theta = np.random.uniform(low=0, high=10 * np.pi / 180)
+        pz = p * np.cos(theta)
+        px = p * np.sin(theta) * np.sin(phi)
+        py = p * np.sin(theta) * np.cos(phi)
+        return torch.tensor(np.c_[px, py, pz]).float().to(device)
+
+    @property
+    def _y_model(self):
+        return self
+
+    @property
+    def device(self):
+        return self._device
+
+    def _request_data(self, uuid, wait=True):
+        r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
+        r = json.loads(r.content)
+        if r["container_status"] == "exited":
+            return r
+        if wait:
+            while r["container_status"] not in ["exited", "failed"]:
+                time.sleep(2.)
+                r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
+                r = json.loads(r.content)
+            if r["container_status"] == "failed":
+                ValueError("Generation has failed!")
+            elif r["container_status"] == "exited":
+                return r
+            return r
+        return None
+
+    def _request_uuid(self, condition, num_repetitions):
+        x_begin, x_end, y_begin, y_end, z = condition.detach().cpu().numpy()
+        r = requests.post(
+            "{}/simulate".format(self._address),
+            json=json.loads(json.dumps({
+                "field": {"Y": 4, "X": 0.0, "Z": 0},
+                "shape": {'X_begin': x_begin, "X_end": x_end,
+                          'Y_begin': y_begin, "Y_end": y_end, 'Z': z},
+                "num_repetitions": num_repetitions
+            }, cls=NumpyEncoder))
+        )
+        return r.content.decode()
+
+    def _loss(self, data):
+        data['muons_momentum'] = np.array(data['muons_momentum'])
+        data['veto_points'] = np.array(data['veto_points'])
+        res = np.sqrt((data['veto_points'][:, :2] ** 2).sum(axis=1)).mean()
+        return res
+
+    def _generate(self, condition, num_repetitions):
+        uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
+        data = self._request_data(uuid, wait=True)
+        return data
+
+    def _generate_multiple(self, condition, num_repetitions):
+        # making request to calculate new points
+        res = {}
+        uuids = []
+        uuids_to_condition = {}
+        for cond in condition:
+            uuid = self._request_uuid(cond, num_repetitions=num_repetitions)
+            uuids.append(uuid)
+            uuids_to_condition[uuid] = cond
+
+        uuids_original = uuids.copy()
+        # iterate over uuids
+        # and collect computation results from SHiP service
+        uuids_processed = []
+        while len(uuids):
+            time.sleep(2.)
+            for uuid in uuids:
+                answer = self._request_data(uuid, wait=False)
+                if (answer == 'failed') or (answer is not None):
+                    uuids_processed.append(uuid)
+                    if answer != 'failed':
+                        res[uuid] = answer
+                        res[uuid]['condition'] = uuids_to_condition[uuid]
+                    else:
+                        ValueError("Generation has failed for {}!".format(uuids_to_condition[uuid]))
+            uuids = list(set(uuids) - set(uuids_processed))
+        return uuids_original, res
+
+    def _func(self, condition, num_repetitions):
+        res = self._generate(condition, num_repetitions=num_repetitions)
+        loss = self._loss(res)
+        return loss
+
+    def _func_multiple(self, condition, num_repetitions):
+        uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+        loss = []
+        for uuid in uuids:
+            d = data.get(uuid, None)
+            loss.append(self._loss(d))
+        return loss
+
+    def generate(self, condition, num_repetitions=100, **kwargs):
+        if condition.ndim == 1:
+            data = self._generate(condition, num_repetitions=num_repetitions)
+            return torch.tensor(data['veto_points']).float().to(condition.device)
+        elif condition.ndim == 2:
+            uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+            res = np.concatenate([data[uuid]['veto_points'] for uuid in uuids])
+            return torch.tensor(res).float().to(device=condition.device)
+
+    def func(self, condition, num_repetitions=100, **kwargs):
+        if condition.ndim == 1:
+            res = self._func(condition, num_repetitions=num_repetitions)
+        elif condition.ndim == 2:
+            res = self._func_multiple(condition, num_repetitions=num_repetitions)
+        else:
+            ValueError('No!')
+        return torch.tensor(res).float().to(device=condition.device)
+
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+        condition = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
+
+        condition = step * (condition * 2 - 1) + current_psi
+        condition = torch.tensor(condition).float().to(self.device)
+        torch.clamp(condition, 1e-5, 1e5)
+        uuids, data = self._generate_multiple(condition, num_repetitions=n_samples_per_dim)
+        y = []
+        xs = []
+        psi = []
+        for uuid in uuids:
+            xs.append(data[uuid]['muons_momentum'])
+            y.append(data[uuid]['veto_points'])
+            cond = data[uuid]['condition']
+            num_entries = len(data[uuid]['muons_momentum'])
+            psi.append(cond.repeat(num_entries, 1))
+        xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
+        y = torch.tensor(np.concatenate(y)).float().to(self.device)
+        psi = torch.cat(psi)
+
+        return y, torch.cat([psi, xs], dim=1)
+
+    def loss(self, y, condition):
+        pass
+
+    def fit(self, y, condition):
+        pass
+
+    def log_density(self, y, condition):
+        pass
