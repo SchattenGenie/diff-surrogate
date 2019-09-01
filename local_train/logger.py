@@ -246,6 +246,7 @@ class BaseLogger(ABC):
         self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=5000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
         self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000).detach().cpu().numpy())
+        #self._perfomance_logs['psi_grad'].append(np.array([0.,1.]))
 
 
 class SimpleLogger(BaseLogger):
@@ -413,6 +414,8 @@ class CometLogger(SimpleLogger):
         if len(current_psi) == 2:
             self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
 
+        self.log_gan_samples(oracle, y_sampler, current_psi)
+
     def log_performance(self, y_sampler, current_psi, n_samples):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
@@ -494,6 +497,41 @@ class CometLogger(SimpleLogger):
         ax.add_patch(rect)
         self._experiment.log_figure("grads_{}".format(self._epoch), g)
         plt.close(g)
+
+    def log_gan_samples(self, oracle, y_sampler, current_psi):
+        f = plt.figure(figsize=(12,6))
+        plt.subplot(1,2,1)
+        xx, yy = np.mgrid[-10:6:.01, -6:7:.01]
+        grid = torch.Tensor(np.c_[xx.ravel(), yy.ravel()])
+        probs = torch.sigmoid(y_sampler.net(grid.to(current_psi.device))[:, 0]).reshape(xx.shape)
+
+        contour = plt.contour(xx, yy, probs.detach().cpu().numpy(), 25, cmap="RdBu",
+                              vmin=0, vmax=0.6, levels=[.5])
+        # ax_c = plt.colorbar(contour)
+        # ax_c.set_label("$P(y = 1)$")
+        # ax_c.set_ticks([0, .25, .5, .75, 1])
+
+        test_data = y_sampler.test_data.detach().cpu()
+        class_one = test_data[:, -1] == 1
+        plt.scatter(test_data[class_one, 0], test_data[class_one, 1], c='b', alpha=0.5)
+        plt.scatter(test_data[~class_one, 0], test_data[~class_one, 1], c='r', alpha=0.5)
+        plt.grid()
+
+        plot_psi = current_psi.detach().view(1, -1).repeat(500, 1)
+        print(current_psi.shape, y_sampler.sample_x(len(plot_psi)).shape)
+        conditions = torch.cat([plot_psi, y_sampler.sample_x(len(plot_psi))], dim=1)
+        gen_data = oracle.generate(conditions).detach().cpu()
+        class_one = gen_data[:, -1] > 0.5
+        # class_one = gen_data[:, -1] == 1
+        plt.scatter(gen_data[class_one, 0], gen_data[class_one, 1], c='y', alpha=0.5)
+        plt.scatter(gen_data[~class_one, 0], gen_data[~class_one, 1], c='g', alpha=0.5)
+        plt.grid()
+
+        plt.subplot(1, 2, 2)
+        plt.hist(gen_data[:, -1])
+        self._experiment.log_figure("oracle_samples_{}".format(self._epoch), f)
+        plt.close(f)
+
 
 class GANLogger(object):
     def __init__(self, experiment):

@@ -14,16 +14,17 @@ import tqdm
 class YModel(BaseConditionalGenerationOracle):
     def __init__(self, device,
                  psi_init: torch.Tensor,
-                 x_range: tuple = (-10, 10),
+                 x_range: tuple = (-10, 10), y_dim=1,
                  loss=lambda y: OptLoss.SigmoidLoss(y, 5, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
-                                     x_dim=1, y_dim=1) # hardcoded values
+                                     x_dim=1, y_dim=y_dim) # hardcoded values
         self._psi_dist = dist.Delta(psi_init.to(device))
         self._x_dist = dist.Uniform(*x_range)
         self._psi_dim = len(psi_init)
         self._device = device
         self.loss = loss
+        self._y_dim = y_dim
 
     @property
     def _y_model(self):
@@ -118,7 +119,7 @@ class YModel(BaseConditionalGenerationOracle):
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
         self.make_condition_sample({'mu': mus, 'x': xs})
         data = self.condition_sample(1).detach().to(self.device)
-        return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
 
 
 class RosenbrockModel(YModel):
@@ -188,6 +189,130 @@ class GaussianMixtureHumpModel(YModel):
     # Three hump function http://benchmarkfcns.xyz/2-dimensional
     def three_hump(self, y):
         return 2 * y[:, 0] ** 2 - 1.05 * y[:, 0] ** 4 + y[:, 0] ** 6 / 6 + y[:,0] * y[:,1] + y[:, 1] ** 2
+
+
+class LearningToSimGaussianModel(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_dim=1, y_dim=3):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Delta(torch.Tensor([0]).to(device))
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.create_test_data()
+        self.train_discriminator()
+        print("INIT_DONE")
+
+    def create_test_data(self):
+        class_size = 250
+        self.n_class_params = 12
+        self.true_params = {0: {0: {"mean": [-7.5, 0], "var": [0.5, 1e-15]},
+                                1: {"mean": [-3, 3.], "var": [1, 0.5]},
+                                2: {"mean": [3, -3.], "var": [1, 0.5]}},
+                            1: {0: {"mean": [0, 5], "var": [0.5, 1e-15]},
+                                1: {"mean": [3, 3.], "var": [1, 0.5]},
+                                2: {"mean": [-3, -3.], "var": [1, 0.5]}}}
+
+        # this is just a messy way to induce readability of what parameter means what in the psi tensor
+        # and double check everything works with one tensor
+        data_generation = []
+        n_components = 3
+        for class_index in [1, 0]:
+            for i in range(n_components):
+                data_generation.extend([*self.true_params[class_index][i]["mean"],
+                                        *self.true_params[class_index][i]["var"]])
+        self.psi_true = torch.Tensor(data_generation).repeat(2 * class_size, 1).to(self._device)
+
+        #psi_as_dict = {1: self.psi_true[:, :self.n_class_params], 0: self.psi_true[:, self.n_class_params:]}
+        psi_as_dict = self.psi_true.reshape(-1, 2, 12).transpose(0, 1)
+        self.test_data = self.sample_toy_data_pt(n_classes=2, n_components=3, psi=psi_as_dict).to(self._device)
+
+    def train_discriminator(self):
+        self.net = torch.nn.Sequential(torch.nn.Linear(2, 10),
+                                  torch.nn.ReLU(),
+                                  torch.nn.Linear(10, 16),
+                                  torch.nn.ReLU(),
+                                  torch.nn.Linear(16, 1)).to(self._device)
+
+        opt = torch.optim.Adam(self.net.parameters())
+
+        n_epochs = 200
+        for e in range(n_epochs):
+            output = self.net(self.test_data[:, :-1])
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(output, self.test_data[:, -1].reshape(-1,1))
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+            # with torch.no_grad():
+            #     output = net(train_data[:, :-1])
+            #     loss = torch.nn.functional.cross_entropy(output, train_data[:, -1].long())
+            #     val_metric = accuracy_score(train_data[:, -1].long(), output.argmax(dim=1))
+            #     print(loss.item(), val_metric)
+
+        for param in self.net.parameters():
+            param.requires_grad_(False)
+        print(loss.item())
+
+
+    def loss(self, y):
+        self.net.zero_grad()
+        output = self.net(y[:, :-1])
+        mask = y[:, -1] > 0.5
+        regulariser = y[:, -1][mask].mean()
+        lam = 1
+
+        return torch.nn.functional.binary_cross_entropy_with_logits(output,
+                                                                    torch.clamp(y[:, -1].reshape(-1,1), 0., 1.),
+                                                                    reduction='none') + lam * (regulariser - 1) ** 2
+
+    def sample_toy_data_pt(self, n_classes=2, n_components=3, psi=None):
+        means_index = [0, 1, 4, 5, 8, 9]
+        std_index = [2, 3, 6, 7, 10, 11]
+
+        n_samples = len(psi[0])
+        classes_mask = pyro.sample('class_selection',
+                                   dist.Categorical(torch.Tensor([1 / 2, 1 / 2]).view(1, -1).repeat(n_samples, 1)))
+        classes_mask = classes_mask.to(self._device)
+
+        data = []
+        for class_index in pyro.plate("y", n_classes):
+            probs = torch.Tensor([1. / n_components] * n_components).repeat(n_samples, 1)
+            assignment = pyro.sample('assignment', dist.Categorical(probs))#.to(self._device)
+            means = psi[class_index][:, means_index].reshape(-1, 3, 2).to(torch.device('cpu'))
+            stds = psi[class_index][:, std_index].reshape(-1, 3, 2).repeat(1, 1, 2).reshape(-1, 3, 2, 2).to(torch.device('cpu'))
+            stds[:, :, 1, :] = stds[:, :, 1, [1, 0]]
+            n_dist = dist.MultivariateNormal(means.gather(1, assignment.view(-1, 1).unsqueeze(2).repeat(1, 1, 2)),
+                                             stds.gather(1,  assignment.view(-1, 1).unsqueeze(2).unsqueeze(3).repeat(1, 1, 2, 2)))
+
+            data.append(pyro.sample("y_{}".format(class_index), n_dist))
+        data = torch.stack(data).to(self._device)
+        data = data.gather(0, classes_mask.view(1, -1).unsqueeze(2).unsqueeze(3).repeat(1, 1, 1, 2))[0, :, 0, :]
+        data = torch.cat([data, classes_mask.view(-1, 1).float()], dim=1)
+        return data
+
+    def _generate_dist(self, psi, x):
+        #return self.mixture_model(psi, x)
+        raise NotImplementedError
+
+    def _generate(self, psi, x):
+        #sigm_ind = list(sum([(i, i + 1) for i in range(2, 24, 4)], ()))
+        #psi[:, sigm_ind] = torch.exp(psi[:, sigm_ind])
+
+        # messy stuff to put fixed stds in place
+        fixed_std_dim = list(sum([(i, i + 1) for i in range(2, 24, 4)], ()))
+        mu_dim = list(sum([(i, i + 1) for i in range(0, 24, 4)], ()))
+
+        output = torch.ones([len(psi), self.psi_true.shape[1]]).to(self._device)
+        output[:, mu_dim] = psi
+        output[:, fixed_std_dim] = self.psi_true[:1, fixed_std_dim].repeat(len(psi), 1)
+
+        psi_as_dict = output.reshape(-1, 2, 12).transpose(0,1)
+        return self.sample_toy_data_pt(psi=psi_as_dict)
 
 
 class OptLoss(object):
