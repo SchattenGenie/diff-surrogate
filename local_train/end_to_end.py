@@ -1,4 +1,5 @@
 from comet_ml import Experiment
+import traceback
 import sys
 import os
 import click
@@ -13,6 +14,7 @@ from linear_model import LinearModelOnPsi
 from optimizer import *
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
+from constraints_utils import make_box_barriers, add_barriers_to_oracle
 
 
 def get_freer_gpu():
@@ -57,6 +59,7 @@ def end_to_end_training(epochs: int,
                         reuse_model: bool = False,
                         shift_model: bool = False,
                         finetune_model: bool = False,
+                        add_box_constraints: bool = False
                         ):
     """
 
@@ -121,6 +124,10 @@ def end_to_end_training(epochs: int,
                                       x=current_psi,
                                       **optimizer_config)
 
+        if make_box_barriers:
+            box_barriers = make_box_barriers(current_psi, step_data_gen)
+            add_barriers_to_oracle(oracle=model, barriers=box_barriers)
+
         current_psi, status, history = optimizer.optimize()
         # with torch.no_grad(): current_psi += shift
 
@@ -137,6 +144,7 @@ def end_to_end_training(epochs: int,
                               step_data_gen=step_data_gen)
         except Exception as e:
             print(e)
+            print(print(traceback.format_exc()))
         torch.cuda.empty_cache()
 
     return
@@ -160,6 +168,7 @@ def end_to_end_training(epochs: int,
 @click.option('--reuse_model', type=bool, default=False)
 @click.option('--shift_model', type=bool, default=False)
 @click.option('--finetune_model', type=bool, default=False)
+@click.option('--add_box_constraints', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,
@@ -178,6 +187,7 @@ def main(model,
          reuse_model,
          shift_model,
          finetune_model,
+         add_box_constraints,
          init_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
@@ -226,7 +236,8 @@ def main(model,
         reuse_optimizer=reuse_optimizer,
         reuse_model=reuse_model,
         shift_model=shift_model,
-        finetune_model=finetune_model
+        finetune_model=finetune_model,
+        add_box_constraints=add_box_constraints
     )
 
 

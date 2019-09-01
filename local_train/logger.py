@@ -112,18 +112,23 @@ class BaseLogger(ABC):
         return ((np.array(y_true) - np.array(y_fake)) / y_true).tolist()
 
     @staticmethod
-    def calc_hessian_metric_in_point(oracle, y_sampler, psi, num_repetitions):
-        hessian_true = y_sampler.hessian(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        hessian_fake = oracle.hessian(psi, num_repetitions=num_repetitions).detach().cpu().numpy()
-        eigvecs_true, eigvals_true, _ = np.linalg.svd(hessian_true)
-        eigvecs_fake, eigvals_fake, _ = np.linalg.svd(hessian_fake)
-
-        cosine_distane_hessian = []
-        for i in range(eigvecs_true.shape[1]):
-            cosine_distane_hessian.append(
-                cosine(eigvecs_true[:, i], eigvecs_fake[:, i])
-            )
-        return np.abs((eigvals_true - eigvals_fake) / eigvals_true).tolist(), cosine_distane_hessian
+    def calc_hessian_metric_in_points(oracle, y_sampler, psis, num_repetitions):
+        psi_dim = psis.shape[1]
+        hessian_true = y_sampler.hessian(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        hessian_fake = oracle.hessian(psis, num_repetitions=num_repetitions).detach().cpu().numpy()
+        cosine_distanes_hessian = []
+        relative_errors_hessain = []
+        for i in tqdm(range(len(hessian_true) // psi_dim)):
+            hessian_true_batch = hessian_true[i * psi_dim: (i + 1) * psi_dim, i * psi_dim: (i + 1) * psi_dim]
+            hessian_fake_batch = hessian_fake[i * psi_dim: (i + 1) * psi_dim, i * psi_dim: (i + 1) * psi_dim]
+            eigvecs_true, eigvals_true, _ = np.linalg.svd(hessian_true_batch)
+            eigvecs_fake, eigvals_fake, _ = np.linalg.svd(hessian_fake_batch)
+            relative_errors_hessain.extend(np.abs((eigvals_true - eigvals_fake) / eigvals_true).tolist())
+            for j in range(eigvecs_true.shape[1]):
+                cosine_distanes_hessian.append(
+                    cosine(eigvecs_true[:, j], eigvecs_fake[:, j])
+                )
+        return relative_errors_hessain, cosine_distanes_hessian
 
     def _log_diff_metrics(self, oracle, y_sampler, metrics,
                           psis, current_psi,
@@ -148,8 +153,9 @@ class BaseLogger(ABC):
                 y_sampler=y_sampler,
                 psis=psis,
                 num_repetitions=num_repetitions)
-            metrics["eigenvalues_metric"].extend(eigenvalues_distances_hess)
-            metrics["eigenvectors_metric"].extend(eigenvectors_distanes_hess)    
+            psi_dim = psis.shape[1]
+            metrics["eigenvalues_metric"].extend(np.array(eigenvalues_distances_hess).reshape(-1, psi_dim))
+            metrics["eigenvectors_metric"].extend(np.array(eigenvectors_distanes_hess).reshape(-1, psi_dim))
     
     @abstractmethod
     def log_oracle(self,
@@ -190,7 +196,7 @@ class BaseLogger(ABC):
 
         psis = torch.cat([psis_inside, psis_outside], dim=0)
         metrics["psis"] = psis.detach().cpu().numpy()
-        chunk_size = 1000
+        chunk_size = 50
         for i in tqdm(range(0, len(psis), chunk_size)):
             print(i, chunk_size)
             psis_batch = psis[i:i + chunk_size]
@@ -205,6 +211,7 @@ class BaseLogger(ABC):
 
         mask_in = ((psis - current_psi).abs() < step_data_gen).all(dim=1).detach().cpu().numpy().astype(bool)
         for key in list(metrics):
+            print(key, np.array(metrics[key]).shape)
             metrics[key + "_inside"] = np.array(metrics[key])[mask_in]
             metrics[key + "_outside"] = np.array(metrics[key])[~mask_in]
 
@@ -305,6 +312,10 @@ class SimpleLogger(BaseLogger):
         axs[2][0].grid()
         axs[2][0].set_ylabel("func evals", fontsize=19)
         axs[2][0].set_xlabel("iter", fontsize=19)
+        axs2 = axs[2][0].twinx()
+        axs2.plot(np.cumsum(func_evals))
+        axs2.grid()
+
 
         time = np.array(self._optimizer_logs['time'])
         axs[2][1].plot(time)
@@ -349,22 +360,42 @@ class SimpleLogger(BaseLogger):
         axs[1][1].set_ylabel("Cosine distance of gradients outside", fontsize=19)
 
         self._print_num_nans_in_metric(metrics, "eigenvalues_metric_inside")
-        axs[2][0].hist(metrics["eigenvalues_metric_inside"], bins=50, density=True, range=(0, 5))
+        try:
+            eigenvalues_metric_inside = metrics["eigenvalues_metric_inside"].ravel()
+        except Exception as e:
+            print(e)
+            eigenvalues_metric_inside = []
+        axs[2][0].hist(eigenvalues_metric_inside, bins=50, density=True, range=(0, 5))
         axs[2][0].grid()
         axs[2][0].set_ylabel("Hessian eigenvalues relative error inside", fontsize=19)
 
         self._print_num_nans_in_metric(metrics, "eigenvalues_metric_outside")
-        axs[2][1].hist(metrics["eigenvalues_metric_outside"], bins=50, density=True, range=(0, 5))
+        try:
+            eigenvalues_metric_outside = metrics["eigenvalues_metric_outside"].ravel()
+        except Exception as e:
+            print(e)
+            eigenvalues_metric_outside = []
+        axs[2][1].hist(eigenvalues_metric_outside, bins=50, density=True, range=(0, 5))
         axs[2][1].grid()
         axs[2][1].set_ylabel("Hessian eigenvalues relative error outside", fontsize=19)
 
-        self._print_num_nans_in_metric(metrics, "eigenvectrors_metric_inside")
-        axs[3][0].hist(metrics["eigenvectrors_metric_inside"], bins=50, density=True)
+        self._print_num_nans_in_metric(metrics, "eigenvectors_metric_inside")
+        try:
+            eigenvectors_metric_inside = metrics["eigenvectors_metric_inside"].ravel()
+        except Exception as e:
+            print(e)
+            eigenvectors_metric_inside = []
+        axs[3][0].hist(eigenvectors_metric_inside, bins=50, density=True)
         axs[3][0].grid()
         axs[3][0].set_ylabel("Cosine distance of hessian eigenvectors inside", fontsize=19)
 
-        self._print_num_nans_in_metric(metrics, "eigenvectrors_metric_outside")
-        axs[3][1].hist(metrics["eigenvectrors_metric_outside"], bins=50, density=True)
+        self._print_num_nans_in_metric(metrics, "eigenvectors_metric_inside")
+        try:
+            eigenvectors_metric_inside = metrics["eigenvectors_metric_inside"].ravel()
+        except Exception as e:
+            print(e)
+            eigenvectors_metric_inside = []
+        axs[3][1].hist(eigenvectors_metric_inside, bins=50, density=True)
         axs[3][1].grid()
         axs[3][1].set_ylabel("Cosine distance of hessian eigenvectors outside", fontsize=19)
 
