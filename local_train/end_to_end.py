@@ -7,12 +7,13 @@ import torch
 import numpy as np
 sys.path.append('../')
 from typing import List, Union
-from model import YModel, RosenbrockModel, MultimodalSingularityModel
-from ffjord_model import FFJORDModel
+from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
+                  LearningToSimGaussianModel
+# from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
-from logger import SimpleLogger, CometLogger
+from logger import SimpleLogger, CometLogger, GANLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 
@@ -59,7 +60,8 @@ def end_to_end_training(epochs: int,
                         reuse_model: bool = False,
                         shift_model: bool = False,
                         finetune_model: bool = False,
-                        add_box_constraints: bool = False
+                        add_box_constraints: bool = False,
+                        experiment = None
                         ):
     """
 
@@ -87,6 +89,8 @@ def end_to_end_training(epochs: int,
     optimizer = optimizer_cls(oracle=model,
                               x=current_psi,
                               **optimizer_config)
+    
+    gan_logger = GANLogger(experiment)
     for epoch in range(epochs):
         # generate new data sample
         # condition
@@ -110,7 +114,7 @@ def end_to_end_training(epochs: int,
         else:
             # if not reusing model
             # then at each epoch re-initialize and re-fit
-            model = model_cls(y_model=y_sampler, **model_config).to(device)
+            model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
             model.fit(x, condition=condition)
 
         model.eval()
@@ -141,12 +145,13 @@ def end_to_end_training(epochs: int,
             logger.log_oracle(oracle=model,
                               y_sampler=y_sampler,
                               current_psi=current_psi,
-                              step_data_gen=step_data_gen)
+                              step_data_gen=step_data_gen,
+                              num_samples=50)
         except Exception as e:
             print(e)
             print(print(traceback.format_exc()))
+            raise
         torch.cuda.empty_cache()
-
     return
 
 
@@ -238,6 +243,7 @@ def main(model,
         shift_model=shift_model,
         finetune_model=finetune_model,
         add_box_constraints=add_box_constraints
+        experiment=experiment
     )
 
 
