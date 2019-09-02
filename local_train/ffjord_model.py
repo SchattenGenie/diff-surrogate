@@ -26,13 +26,14 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  num_blocks: int = 3,
                  lr: float = 1e-3,
                  epochs: int = 10,
-                 hidden_dims: Tuple[int] = (32, 32)):
+                 hidden_dims: Tuple[int] = (32, 32),
+                 **kwargs):
         super(FFJORDModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         self._x_dim = x_dim
         self._y_dim =y_dim
         self._psi_dim = psi_dim
 
-        self._model = build_model_tabular(dims=self._x_dim,
+        self._model = build_model_tabular(dims=self._y_dim,
                                           condition_dim=self._psi_dim + self._x_dim,
                                           layer_type='concat_v2',
                                           num_blocks=num_blocks,

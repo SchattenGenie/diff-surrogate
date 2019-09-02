@@ -8,8 +8,8 @@ import numpy as np
 sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel
-# from ffjord_model import FFJORDModel
+                  LearningToSimGaussianModel, SHiPModel
+from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
@@ -99,7 +99,6 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
-        # shift = torch.zeros(condition.shape[1]).view(1, -1).float().to(condition.device)
         print(x.shape, condition.shape)
         if reuse_model:
             if shift_model:
@@ -128,7 +127,7 @@ def end_to_end_training(epochs: int,
                                       x=current_psi,
                                       **optimizer_config)
 
-        if make_box_barriers:
+        if add_box_constraints:
             box_barriers = make_box_barriers(current_psi, step_data_gen)
             add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
@@ -142,11 +141,13 @@ def end_to_end_training(epochs: int,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
             logger.log_optimizer(optimizer)
-            logger.log_oracle(oracle=model,
-                              y_sampler=y_sampler,
-                              current_psi=current_psi,
-                              step_data_gen=step_data_gen,
-                              num_samples=50)
+            # too long for ship...
+            if not isinstance(y_sampler, SHiPModel):
+                logger.log_oracle(oracle=model,
+                                  y_sampler=y_sampler,
+                                  current_psi=current_psi,
+                                  step_data_gen=step_data_gen,
+                                  num_samples=50)
         except Exception as e:
             print(e)
             print(print(traceback.format_exc()))
@@ -242,7 +243,7 @@ def main(model,
         reuse_model=reuse_model,
         shift_model=shift_model,
         finetune_model=finetune_model,
-        add_box_constraints=add_box_constraints
+        add_box_constraints=add_box_constraints,
         experiment=experiment
     )
 

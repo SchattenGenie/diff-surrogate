@@ -5,15 +5,22 @@ import click
 import torch
 import numpy as np
 from typing import Callable
+from torch import nn
+from torch.nn import functional as F
+from torch import optim
 sys.path.append('../')
 from typing import List, Union
 from logger import SimpleLogger, CometLogger
-from num_diff_schemes import compute_gradient_of_vector_function
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel
 from optimizer import BaseOptimizer
 from typing import Callable
+import time
+import pyro
+from torch.autograd import grad
+from pyro import distributions as dist
+from optimizer import SUCCESS, ITER_ESCEEDED, COMP_ERROR
 
 
 def get_freer_gpu():
@@ -59,6 +66,20 @@ class ControlVariate(nn.Module):
         return x
 
 
+class NormalPolicy:
+    def __init__(self):
+        pass
+
+    def __call__(self, mu, sigma):
+        return pyro.sample("psi", dist.Normal(mu, (1 + sigma.exp()).log()))
+
+    def sample(self, mu, sigma):
+        return pyro.sample("psi", dist.Normal(mu, (1 + sigma.exp()).log()))
+
+    def log_prob(self, mu, sigma, x):
+        return dist.Normal(mu, (1 + sigma.exp()).log()).log_prob(x)
+
+
 class VoidOptimizer(BaseOptimizer):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,
@@ -66,17 +87,20 @@ class VoidOptimizer(BaseOptimizer):
                  control_variate: Callable,
                  lr: float = 1e-1,
                  K: int = 20,
+                 num_repetitions: int = 5000,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._x.requires_grad_(True)
         self._lr = lr
         self._alpha_k = self._lr
         self._policy = NormalPolicy()
-        self._control_variate = control_variate().to(oracle.device)
+        self._control_variate = control_variate(len(x)).to(oracle.device)
+        self._control_variate_parameters = list(self._control_variate.parameters())
         self._sigma = torch.zeros_like(self._x, requires_grad=True)
         self._K = K
+        self._num_repetitions = num_repetitions
         self._optimizer = optim.Adam(
-            params=[self._x, self._sigma] + list(self._control_variate.parameters()),
+            params=[self._x, self._sigma] + self._control_variate_parameters,
             lr=lr)
 
     def _update_history(self, init_time):
@@ -91,7 +115,7 @@ class VoidOptimizer(BaseOptimizer):
                               num_repetitions=self._num_repetitions).detach().cpu().numpy()
         )
         self._history['grad'].append(
-            self._d_k
+            self._d_k.detach().cpu().numpy()
         )
         self._history['x'].append(
             self._x.detach().cpu().numpy()
@@ -105,25 +129,32 @@ class VoidOptimizer(BaseOptimizer):
         init_time = time.time()
 
         self._optimizer.zero_grad()
-        for i in range(self.K):
+        self._x.grad = torch.zeros_like(self._x)
+        self._sigma.grad = torch.zeros_like(self._sigma)
+        for parameter in self._control_variate_parameters:
+            parameter.grad = torch.zeros_like(parameter)
+        for i in range(self._K):
             action = self._policy(self._x, self._sigma)
-            r = self._oracle.func(action)
+            r = self._oracle.func(action, num_repetitions=self._num_repetitions)
             c = self._control_variate(action)
-            log_prob = policy.log_prob(mu=self._x, sigma=self._sigma, x=action.detach()).mean()
+            log_prob = self._policy.log_prob(mu=self._x, sigma=self._sigma, x=action.detach()).mean()
 
             x_grad_1, sigma_grad_1 = grad([log_prob], [self._x, self._sigma], retain_graph=True, create_graph=True)
             x_grad_2, sigma_grad_2 = grad([c], [self._x, self._sigma], retain_graph=True, create_graph=True)
 
-            x_grad = mu_grad_1 * (r - c) + mu_grad_2
+            x_grad = x_grad_1 * (r - c) + x_grad_2
             sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
-            parameters_grad = grad([x_grad.pow(2).sum() + sigma_grad.pow(2).sum()], parameters)
+            parameters_grad = grad([x_grad.pow(2).sum() + sigma_grad.pow(2).sum()], self._control_variate_parameters)
             with torch.no_grad():
                 self._x.grad.data += x_grad.clone().detach() / self._K
                 self._sigma.grad.data += sigma_grad.clone().detach() / self._K
-                for parameter, parameter_grad in zip(parameters, parameters_grad):
+                for parameter, parameter_grad in zip(self._control_variate_parameters, parameters_grad):
                     parameter.grad.data += parameter_grad.clone().detach()
 
-        self._d_k = self._x.grad.copy()
+        self._d_k = self._x.grad.clone().detach()
+        d_k = self._x.grad.clone().detach()
+        x_k = self._x.clone().detach()
+        f_k = r
         self._optimizer.step()
 
         super()._post_step(init_time)
@@ -139,24 +170,18 @@ class VoidOptimizer(BaseOptimizer):
 @click.command()
 @click.option('--logger', type=str, default='CometLogger')
 @click.option('--optimized_function', type=str, default='YModel')
+@click.option('--optimizer_config_file', type=str, default='optimizer_config')
 @click.option('--project_name', type=str, prompt='Enter project name')
 @click.option('--work_space', type=str, prompt='Enter workspace name')
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
-@click.option('--n', type=int, default=3)
-@click.option('--num_repetitions', type=int, default=5000)
-@click.option('--h', type=float, default=0.2)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(
         logger,
         optimized_function,
-        optimizer,
         optimizer_config_file,
         project_name,
         work_space,
         tags,
-        num_repetitions,
-        n,
-        h,
         init_psi,
 ):
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
@@ -167,7 +192,6 @@ def main(
 
     experiment = Experiment(project_name=project_name, workspace=work_space)
     experiment.add_tags([x.strip() for x in tags.split(',')])
-    experiment.log_parameter('optimizer_type', optimizer)
     experiment.log_parameters(
         {"optimizer_{}".format(key): value for key, value in optimizer_config.items()}
     )
@@ -177,10 +201,16 @@ def main(
 
     logger = str_to_class(logger)(experiment)
     y_model = optimized_function_cls(device=device, psi_init=init_psi)
-    optimizer = VoidOptimizer(oracle=y_model, x=init_psi, **optimizer_config)
+    optimizer = VoidOptimizer(
+        oracle=y_model,
+        x=init_psi,
+        control_variate=ControlVariate,
+        **optimizer_config)
+
     optimizer.optimize()
     logger.log_optimizer(optimizer)
-
-
+    logger.log_performance(y_sampler=optimized_function_cls,
+                           current_psi=optimizer._history['func'][-1],
+                           n_samples=100)
 if __name__ == "__main__":
     main()
