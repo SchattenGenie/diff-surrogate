@@ -7,7 +7,7 @@ import torch
 import numpy as np
 sys.path.append('../')
 from typing import List, Union
-from model import YModel, RosenbrockModel, MultimodalSingularityModel
+from model import YModel, RosenbrockModel, MultimodalSingularityModel, SHiPModel
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
