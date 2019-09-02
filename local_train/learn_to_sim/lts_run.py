@@ -1,21 +1,18 @@
 from comet_ml import Experiment
-import traceback
 import sys
 import os
 import click
 import torch
 import numpy as np
 sys.path.append('../')
+sys.path.append('../..')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel
-# from ffjord_model import FFJORDModel
-from gan_model import GANModel
-from linear_model import LinearModelOnPsi
 from optimizer import *
+from lts_model import LearnToSimModel
 from logger import SimpleLogger, CometLogger, GANLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
-from constraints_utils import make_box_barriers, add_barriers_to_oracle
 
 
 def get_freer_gpu():
@@ -60,7 +57,6 @@ def end_to_end_training(epochs: int,
                         reuse_model: bool = False,
                         shift_model: bool = False,
                         finetune_model: bool = False,
-                        add_box_constraints: bool = False,
                         experiment = None
                         ):
     """
@@ -90,35 +86,7 @@ def end_to_end_training(epochs: int,
                               x=current_psi,
                               **optimizer_config)
 
-    gan_logger = GANLogger(experiment)
     for epoch in range(epochs):
-        # generate new data sample
-        # condition
-        x, condition = y_sampler.generate_local_data_lhs(
-            n_samples_per_dim=n_samples_per_dim,
-            step=step_data_gen,
-            current_psi=current_psi,
-            n_samples=n_samples)
-        # shift = torch.zeros(condition.shape[1]).view(1, -1).float().to(condition.device)
-        print(x.shape, condition.shape)
-        if reuse_model:
-            if shift_model:
-                if isinstance(model, ShiftedOracle):
-                    model.set_shift(condition.mean(dim=0))
-                else:
-                    model = ShiftedOracle(oracle=model, shift=condition.mean(dim=0))
-                model.fit(x, condition=condition)
-            elif finetune_model:
-                # model.refit(x, condition=condition)
-                model.fit(x, condition=condition)
-        else:
-            # if not reusing model
-            # then at each epoch re-initialize and re-fit
-            model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
-            model.fit(x, condition=condition)
-
-        model.eval()
-
         if reuse_optimizer:
             optimizer.update(oracle=model,
                              x=current_psi)
@@ -127,10 +95,6 @@ def end_to_end_training(epochs: int,
             optimizer = optimizer_cls(oracle=model,
                                       x=current_psi,
                                       **optimizer_config)
-
-        if make_box_barriers:
-            box_barriers = make_box_barriers(current_psi, step_data_gen)
-            add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
         current_psi, status, history = optimizer.optimize()
         # with torch.no_grad(): current_psi += shift
@@ -142,16 +106,17 @@ def end_to_end_training(epochs: int,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
             logger.log_optimizer(optimizer)
-            logger.log_oracle(oracle=model,
-                              y_sampler=y_sampler,
-                              current_psi=current_psi,
-                              step_data_gen=step_data_gen,
-                              num_samples=50)
+            logger.log_gan_samples(model, y_sampler, current_psi)
+            # logger.log_oracle(oracle=model,
+            #                   y_sampler=y_sampler,
+            #                   current_psi=current_psi,
+            #                   step_data_gen=step_data_gen,
+            #                   num_samples=50)
         except Exception as e:
             print(e)
-            print(print(traceback.format_exc()))
             raise
         torch.cuda.empty_cache()
+
     return
 
 
@@ -173,7 +138,6 @@ def end_to_end_training(epochs: int,
 @click.option('--reuse_model', type=bool, default=False)
 @click.option('--shift_model', type=bool, default=False)
 @click.option('--finetune_model', type=bool, default=False)
-@click.option('--add_box_constraints', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,
@@ -192,7 +156,6 @@ def main(model,
          reuse_model,
          shift_model,
          finetune_model,
-         add_box_constraints,
          init_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
@@ -200,6 +163,8 @@ def main(model,
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim
+    model_config['n_samples'] = n_samples
+    model_config['n_samples_per_dim'] = n_samples_per_dim
     optimizer_config['x_step'] = step_data_gen
 
     optimized_function_cls = str_to_class(optimized_function)
@@ -242,7 +207,6 @@ def main(model,
         reuse_model=reuse_model,
         shift_model=shift_model,
         finetune_model=finetune_model,
-        add_box_constraints=add_box_constraints
         experiment=experiment
     )
 

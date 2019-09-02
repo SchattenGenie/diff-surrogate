@@ -552,3 +552,31 @@ class HMCOptimizer(BaseOptimizer):
                 torch.isfinite(f_k).all() and
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
+
+
+class LTSOptimizer(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1e-1,
+                 torch_model: str = 'Adam',
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        self._lr = lr
+
+    def _step(self):
+        init_time = time.time()
+        x_k = self._x.clone().detach()
+        d_k = self._oracle.grad(x_k).detach()
+        with torch.no_grad():
+            x_k = x_k + d_k * self._lr
+        grad_norm = torch.norm(d_k).item()
+
+        self._x = x_k
+        super()._post_step(init_time)
+
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
