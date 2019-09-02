@@ -128,7 +128,7 @@ def end_to_end_training(epochs: int,
                                       x=current_psi,
                                       **optimizer_config)
 
-        if make_box_barriers:
+        if add_box_constraints:
             box_barriers = make_box_barriers(current_psi, step_data_gen)
             add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
@@ -242,7 +242,7 @@ def main(model,
         reuse_model=reuse_model,
         shift_model=shift_model,
         finetune_model=finetune_model,
-        add_box_constraints=add_box_constraints
+        add_box_constraints=add_box_constraints,
         experiment=experiment
     )
 
