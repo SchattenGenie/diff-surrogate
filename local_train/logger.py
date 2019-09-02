@@ -426,6 +426,9 @@ class CometLogger(SimpleLogger):
     def log_optimizer(self, optimizer):
         figure = super().log_optimizer(optimizer)
         self._experiment.log_figure("Optimization dynamic", figure, overwrite=True)
+        self._experiment.log_metric('Grad diff norm',
+                                    np.linalg.norm(self._perfomance_logs["psi_grad"][-1] - self._optimizer_logs['grad'][-1]),
+                                    step=self._epoch)
 
     def log_oracle(self, oracle, y_sampler,
                    current_psi,
@@ -537,7 +540,7 @@ class CometLogger(SimpleLogger):
         probs = torch.sigmoid(y_sampler.net(grid.to(current_psi.device))[:, 0]).reshape(xx.shape)
 
         contour = plt.contour(xx, yy, probs.detach().cpu().numpy(), 25, cmap="RdBu",
-                              vmin=0, vmax=0.6, levels=[.5])
+                              vmin=0, vmax=0.6, levels=[.55])
         # ax_c = plt.colorbar(contour)
         # ax_c.set_label("$P(y = 1)$")
         # ax_c.set_ticks([0, .25, .5, .75, 1])
