@@ -13,7 +13,7 @@ from typing import List, Union
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
-from model import YModel
+from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel
 from optimizer import BaseOptimizer
 from typing import Callable
 import time
@@ -70,11 +70,8 @@ class NormalPolicy:
     def __init__(self):
         pass
 
-    def __call__(self, mu, sigma):
-        return pyro.sample("psi", dist.Normal(mu, (1 + sigma.exp()).log()))
-
-    def sample(self, mu, sigma):
-        return pyro.sample("psi", dist.Normal(mu, (1 + sigma.exp()).log()))
+    def __call__(self, mu, sigma, N=1):
+        return pyro.sample("psi", dist.Normal(mu.repeat(N, 1), (1 + sigma.repeat(N, 1).exp()).log()))
 
     def log_prob(self, mu, sigma, x):
         return dist.Normal(mu, (1 + sigma.exp()).log()).log_prob(x)
@@ -209,7 +206,7 @@ def main(
 
     optimizer.optimize()
     logger.log_optimizer(optimizer)
-    logger.log_performance(y_sampler=optimized_function_cls,
+    logger.log_performance(y_sampler=y_model,
                            current_psi=optimizer._history['func'][-1],
                            n_samples=100)
 if __name__ == "__main__":
