@@ -9,6 +9,9 @@ from pyDOE import lhs
 import seaborn as sns
 import lhsmdu
 import tqdm
+import requests
+import json
+import time
 
 
 class YModel(BaseConditionalGenerationOracle):
@@ -374,15 +377,25 @@ class OptLoss(object):
         return -torch.mean(torch.tanh(ys - left_bound) - torch.tanh(ys - right_bound), dim=1)
 
 
-class SHiPModel(BaseConditionalGenerationOracle):
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.object):
+            if obj.ndim == 0:
+                return float(obj)
+            elif obj.ndim == 1:
+                return [float(t) for t in obj.tolist()]
+        return json.JSONEncoder.default(self, obj)
+
+
+class SHiPModel(YModel):
     def __init__(self,
                  device,
                  psi_init: torch.Tensor,
                  address: str = 'http://13.85.29.208:5432',
                  cut_veto=100):
-        # super(YModel, self).__init__(y_model=None,
-        #                              psi_dim=len(psi_init),
-        #                              x_dim=3, y_dim=3) # hardcoded values
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=3, y_dim=3) # hardcoded values
         self._psi_dist = dist.Delta(psi_init.to(device))
         self._psi_dim = len(psi_init)
         self._device = device
@@ -396,7 +409,8 @@ class SHiPModel(BaseConditionalGenerationOracle):
         pz = p * np.cos(theta)
         px = p * np.sin(theta) * np.sin(phi)
         py = p * np.sin(theta) * np.cos(phi)
-        return torch.tensor(np.c_[px, py, pz]).float().to(device)
+        particle_type = np.random.choice([-13., 13.], size=num_repetitions)
+        return torch.tensor(np.c_[px, py, pz, particle_type]).float().to(self.device)
 
     @property
     def _y_model(self):
@@ -526,13 +540,52 @@ class SHiPModel(BaseConditionalGenerationOracle):
         y = torch.tensor(np.concatenate(y)).float().to(self.device)
         psi = torch.cat(psi)
 
-        return y, torch.cat([psi, xs], dim=1)
+        return y[:, :2], torch.cat([psi, xs], dim=1)
 
-    def loss(self, y, condition):
-        pass
+    def loss(self, y):
+        return y.pow(2).sum(dim=1).sqrt()
 
     def fit(self, y, condition):
         pass
 
     def log_density(self, y, condition):
         pass
+
+    def grad(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
+        condition = condition.detach().clone().to(self.device)
+        condition.requires_grad_(True)
+        return torch.zeros_like(condition)
+
+
+
+class BernoulliModel(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=(-0.1, 0.1),
+                 x_dim=1,
+                 y_dim=1,
+                 loss=lambda y: (y - 0.499).pow(2).mean(dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_psi = torch.sigmoid(psi + x)
+        return dist.RelaxedBernoulli(torch.tensor(0.0001).float().to(psi.device), logits=latent_psi)
+
+    def _generate(self, psi, x):
+        return pyro.sample('y', self._generate_dist(psi, x))
+
+    def generate(self, condition):
+        psi, x = condition[:, :self._psi_dim], condition[:, self._psi_dim:]
+        return self._generate(psi, x)
+
+    def sample(self, sample_size):
+        psi = self.sample_psi(sample_size)
+        x = self.sample_x(sample_size)
+        return self._generate(psi, x)

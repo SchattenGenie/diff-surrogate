@@ -8,8 +8,8 @@ import numpy as np
 sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel
-# from ffjord_model import FFJORDModel
+                  LearningToSimGaussianModel, SHiPModel, BernoulliModel
+from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
@@ -89,7 +89,7 @@ def end_to_end_training(epochs: int,
     optimizer = optimizer_cls(oracle=model,
                               x=current_psi,
                               **optimizer_config)
-    
+
     gan_logger = GANLogger(experiment)
     for epoch in range(epochs):
         # generate new data sample
@@ -99,7 +99,6 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
-        # shift = torch.zeros(condition.shape[1]).view(1, -1).float().to(condition.device)
         print(x.shape, condition.shape)
         if reuse_model:
             if shift_model:
@@ -142,15 +141,17 @@ def end_to_end_training(epochs: int,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
             logger.log_optimizer(optimizer)
-            logger.log_oracle(oracle=model,
-                              y_sampler=y_sampler,
-                              current_psi=current_psi,
-                              step_data_gen=step_data_gen,
-                              num_samples=50)
+            # too long for ship...
+            if not isinstance(y_sampler, SHiPModel):
+                logger.log_oracle(oracle=model,
+                                  y_sampler=y_sampler,
+                                  current_psi=current_psi,
+                                  step_data_gen=step_data_gen,
+                                  num_samples=50)
         except Exception as e:
             print(e)
             print(print(traceback.format_exc()))
-            raise
+            # raise
         torch.cuda.empty_cache()
     return
 
