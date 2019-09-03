@@ -448,7 +448,7 @@ class CometLogger(SimpleLogger):
         if len(current_psi) == 2:
             self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
 
-        self.log_gan_samples(oracle, y_sampler, current_psi)
+        # self.log_gan_samples(oracle, y_sampler, current_psi)
 
     def log_performance(self, y_sampler, current_psi, n_samples):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)

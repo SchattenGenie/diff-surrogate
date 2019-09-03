@@ -8,7 +8,7 @@ import numpy as np
 sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, SHiPModel
+                  LearningToSimGaussianModel, SHiPModel, BernoulliModel
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
@@ -151,7 +151,7 @@ def end_to_end_training(epochs: int,
         except Exception as e:
             print(e)
             print(print(traceback.format_exc()))
-            raise
+            # raise
         torch.cuda.empty_cache()
     return
 

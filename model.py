@@ -555,3 +555,37 @@ class SHiPModel(YModel):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         return torch.zeros_like(condition)
+
+
+
+class BernoulliModel(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=(-0.1, 0.1),
+                 x_dim=1,
+                 y_dim=1,
+                 loss=lambda y: (y - 0.499).pow(2).mean(dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_psi = torch.sigmoid(psi + x)
+        return dist.RelaxedBernoulli(torch.tensor(0.0001).float().to(psi.device), logits=latent_psi)
+
+    def _generate(self, psi, x):
+        return pyro.sample('y', self._generate_dist(psi, x))
+
+    def generate(self, condition):
+        psi, x = condition[:, :self._psi_dim], condition[:, self._psi_dim:]
+        return self._generate(psi, x)
+
+    def sample(self, sample_size):
+        psi = self.sample_psi(sample_size)
+        x = self.sample_x(sample_size)
+        return self._generate(psi, x)
