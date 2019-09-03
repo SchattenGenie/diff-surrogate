@@ -164,7 +164,7 @@ class GaussianMixtureHumpModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
-                 x_dim=2, y_dim=2,
+                 x_dim=2, y_dim=1,
                  loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),

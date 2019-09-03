@@ -567,7 +567,7 @@ class LTSOptimizer(BaseOptimizer):
     def _step(self):
         init_time = time.time()
         x_k = self._x.clone().detach()
-        d_k = self._oracle.grad(x_k).detach()
+        d_k = -self._oracle.grad(x_k).detach()
         with torch.no_grad():
             x_k = x_k + d_k * self._lr
         grad_norm = torch.norm(d_k).item()

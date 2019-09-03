@@ -10,9 +10,9 @@ class LinearConstraint:
         self._b = b
 
     def __call__(self, x):
-        if x.ndim == 1:
+        if x.ndimension() == 1:
             return (self._a * x).sum() - self._b
-        elif x.ndim == 2:
+        elif x.ndimension() == 2:
             return torch.mv(x, self._a) - self._b
 
 

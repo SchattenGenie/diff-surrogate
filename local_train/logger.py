@@ -196,7 +196,7 @@ class BaseLogger(ABC):
 
         psis = torch.cat([psis_inside, psis_outside], dim=0)
         metrics["psis"] = psis.detach().cpu().numpy()
-        chunk_size = 50
+        chunk_size = 200
         for i in tqdm(range(0, len(psis), chunk_size)):
             print(i, chunk_size)
             psis_batch = psis[i:i + chunk_size]
@@ -253,7 +253,6 @@ class BaseLogger(ABC):
         self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=5000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
         self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=5000).detach().cpu().numpy())
-        #self._perfomance_logs['psi_grad'].append(np.array([0.,1.]))
 
 
 class SimpleLogger(BaseLogger):
@@ -426,8 +425,11 @@ class CometLogger(SimpleLogger):
     def log_optimizer(self, optimizer):
         figure = super().log_optimizer(optimizer)
         self._experiment.log_figure("Optimization dynamic", figure, overwrite=True)
+
+        normed_true_grad = self._perfomance_logs["psi_grad"][-1] / np.linalg.norm(self._perfomance_logs["psi_grad"][-1])
+        normed_model_grad = self._optimizer_logs['grad'][-1] / np.linalg.norm(self._optimizer_logs['grad'][-1])
         self._experiment.log_metric('Grad diff norm',
-                                    np.linalg.norm(self._perfomance_logs["psi_grad"][-1] - self._optimizer_logs['grad'][-1]),
+                                    np.linalg.norm(normed_true_grad - normed_model_grad),
                                     step=self._epoch)
 
     def log_oracle(self, oracle, y_sampler,
@@ -448,7 +450,7 @@ class CometLogger(SimpleLogger):
         if len(current_psi) == 2:
             self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
 
-        self.log_gan_samples(oracle, y_sampler, current_psi)
+        # self.log_gan_samples(oracle, y_sampler, current_psi)
 
     def log_performance(self, y_sampler, current_psi, n_samples):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
