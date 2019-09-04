@@ -15,6 +15,7 @@ from utils import Metrics
 import pyro.distributions as dist
 from pyDOE import lhs
 import time
+import pickle
 
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
@@ -426,11 +427,13 @@ class CometLogger(SimpleLogger):
         figure = super().log_optimizer(optimizer)
         self._experiment.log_figure("Optimization dynamic", figure, overwrite=True)
 
-        normed_true_grad = self._perfomance_logs["psi_grad"][-1] / np.linalg.norm(self._perfomance_logs["psi_grad"][-1])
-        normed_model_grad = self._optimizer_logs['grad'][-1] / np.linalg.norm(self._optimizer_logs['grad'][-1])
-        self._experiment.log_metric('Grad diff norm',
-                                    np.linalg.norm(normed_true_grad - normed_model_grad),
-                                    step=self._epoch)
+        # normed_true_grad = self._perfomance_logs["psi_grad"][-1] / np.linalg.norm(self._perfomance_logs["psi_grad"][-1])
+        # normed_model_grad = self._optimizer_logs['grad'][-1] / np.linalg.norm(self._optimizer_logs['grad'][-1])
+        # self._experiment.log_metric('Grad diff norm',
+        #                             np.linalg.norm(normed_true_grad - normed_model_grad),
+        #                             step=self._epoch)
+
+
 
     def log_oracle(self, oracle, y_sampler,
                    current_psi,
@@ -465,7 +468,49 @@ class CometLogger(SimpleLogger):
 
         psi_grad = self._perfomance_logs['psi_grad'][-1]
         self._experiment.log_metric('Psi grad norm', np.linalg.norm(psi_grad), step=self._epoch)
+
+        with open("psi_list.pkl", 'wb') as f:
+            pickle.dump(self._optimizer_logs['x'], f)
+        self._experiment.log_asset("psi_list.pkl", overwrite=True, copy_to_tmp=False)
+
         self._epoch += 1
+
+    def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20):
+        _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
+
+        # LTS does not support vectorized psis yet, so we use loop
+        if type(oracle).__name__ == "LearnToSimModel":
+            model_grads_list = []
+            for index in range(n_samples):
+                model_grads_list.append(oracle.grad(_current_psi[index, :], update_baselines=False).detach())
+            model_grad_value = torch.stack(model_grads_list).detach()
+        else:
+            model_grad_value = oracle.grad(_current_psi, num_repetitions=num_repetitions)
+
+        true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
+        # print(model_grad_value.shape, true_grad_value.shape)
+
+        self._experiment.log_metric('Mean grad norm', torch.norm(torch.mean(model_grad_value, dim=0, keepdim=True),
+                                                                 dim=1).item(), step=self._epoch)
+        self._experiment.log_metric('Mean grad var', torch.norm(torch.var(model_grad_value, dim=0, keepdim=True),
+                                                                dim=1).item(), step=self._epoch)
+
+
+        model_grad_value = model_grad_value.mean(dim=0)
+        model_grad_value /= model_grad_value.norm()
+
+        true_grad_value = true_grad_value.mean(dim=0)
+        true_grad_value /= true_grad_value.norm()
+        # print(model_grad_value.shape, true_grad_value.shape)
+
+        self._experiment.log_metric('Mean grad diff',
+                                    torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+
+
+
+        #self._experiment.log_metric('True grad', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)
+
+
 
     def log_grads_2d(self, psis, metrics, current_psi, step_data_gen):
         g = plt.figure(figsize=(16, 8))

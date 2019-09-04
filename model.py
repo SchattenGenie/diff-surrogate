@@ -576,7 +576,7 @@ class BernoulliModel(YModel):
 
     def _generate_dist(self, psi, x):
         latent_psi = torch.sigmoid(psi + x)
-        return dist.RelaxedBernoulli(torch.tensor(0.0001).float().to(psi.device), logits=latent_psi)
+        return dist.RelaxedBernoulli(torch.tensor(0.0001).float().to(psi.device), probs=latent_psi)
 
     def _generate(self, psi, x):
         return pyro.sample('y', self._generate_dist(psi, x))

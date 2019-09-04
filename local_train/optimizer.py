@@ -35,7 +35,7 @@ class BaseOptimizer(ABC):
         self._oracle = oracle
         self._oracle.eval()
         self._history = defaultdict(list)
-        self._x = x
+        self._x = x.clone().detach()
         self._x_init = copy.deepcopy(x)
         self._x_step = x_step
         self._tolerance = tolerance
@@ -90,7 +90,7 @@ class BaseOptimizer(ABC):
 
     def update(self, oracle: BaseConditionalGenerationOracle, x: torch.Tensor):
         self._oracle = oracle
-        self._x = x
+        self._x.data = x.data
         self._x_init = copy.deepcopy(x)
         self._history = defaultdict(list)
 
@@ -108,7 +108,7 @@ class BaseOptimizer(ABC):
         :param init_time:
         :return:
         """
-        self._x = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
+        self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
         self._num_iter += 1
         if self._trace:
             self._update_history(init_time=init_time)
@@ -374,15 +374,18 @@ class TorchOptimizer(BaseOptimizer):
                  x: torch.Tensor,
                  lr: float = 1e-1,
                  torch_model: str = 'Adam',
+                 optim_params: dict = {},
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._x.requires_grad_(True)
         self._lr = lr
         self._alpha_k = self._lr
         self._torch_model = torch_model
+        self._optim_params = optim_params
         self._base_optimizer = getattr(optim, self._torch_model)(
-            params=[self._x], lr=lr
+            params=[self._x], lr=lr, **self._optim_params
         )
+        print(self._base_optimizer)
 
     def _step(self):
         init_time = time.time()
@@ -391,14 +394,13 @@ class TorchOptimizer(BaseOptimizer):
         self._x.grad = d_k
         self._base_optimizer.step()
         self._base_optimizer.zero_grad()
-        print(self._x)
+        print("PSI", self._x)
         super()._post_step(init_time)
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
             return SUCCESS
-        if not (torch.isfinite(x_k).all() and
-                torch.isfinite(f_k).all() and
-                torch.isfinite(self._d_k).all()):
+        if not (torch.isfinite(self._x).all() and
+                torch.isfinite(d_k).all()):
             return COMP_ERROR
 
 
@@ -567,7 +569,7 @@ class LTSOptimizer(BaseOptimizer):
     def _step(self):
         init_time = time.time()
         x_k = self._x.clone().detach()
-        d_k = -self._oracle.grad(x_k).detach()
+        d_k = -self._oracle.grad(x_k, update_baselines=True).detach()
         with torch.no_grad():
             x_k = x_k + d_k * self._lr
         grad_norm = torch.norm(d_k).item()
