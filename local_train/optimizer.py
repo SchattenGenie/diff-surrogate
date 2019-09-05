@@ -108,7 +108,7 @@ class BaseOptimizer(ABC):
         :param init_time:
         :return:
         """
-        self._x = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
+        self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
         self._num_iter += 1
         if self._trace:
             self._update_history(init_time=init_time)
@@ -459,7 +459,8 @@ class GPOptimizer(BaseOptimizer):
             self.bound_x(x_k.detach().cpu().numpy().tolist()),
             f_k.item()
         )
-        self._x = torch.tensor(self._opt_result['x']).float().to(self._oracle.device)# x_k.detach().clone()
+        self._x = torch.tensor(self._opt_result['x']).float().to(self._oracle.device) # x_k.detach().clone()
+        print(self._opt_result['x'], self._opt_result['fun'])
         super()._post_step(init_time)
         # grad_norm = torch.norm(d_k).item()
         # if grad_norm < self._tolerance:

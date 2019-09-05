@@ -167,7 +167,8 @@ class GaussianMixtureHumpModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
-                 x_dim=2, y_dim=2,
+                 x_dim=2,
+                 y_dim=1,
                  loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
@@ -401,6 +402,8 @@ class SHiPModel(YModel):
         self._device = device
         self._cut_veto = cut_veto
         self._address = address
+        self._left_bound = -200
+        self._right_bound = 200
 
     def sample_x(self, num_repetitions):
         p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
@@ -453,8 +456,8 @@ class SHiPModel(YModel):
     def _loss(self, data):
         data['muons_momentum'] = np.array(data['muons_momentum'])
         data['veto_points'] = np.array(data['veto_points'])
-        res = np.sqrt((data['veto_points'][:, :2] ** 2).sum(axis=1)).mean()
-        return res
+        y = torch.tensor(data['veto_points'][:, :2])
+        return torch.prod(torch.sigmoid(y - self._left_bound) - torch.sigmoid(y - self._right_bound), dim=1).mean()
 
     def _generate(self, condition, num_repetitions):
         uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
@@ -543,7 +546,7 @@ class SHiPModel(YModel):
         return y[:, :2], torch.cat([psi, xs], dim=1)
 
     def loss(self, y):
-        return y.pow(2).sum(dim=1).sqrt()
+        return torch.prod(torch.sigmoid(y - self._left_bound) - torch.sigmoid(y - self._right_bound), dim=1)
 
     def fit(self, y, condition):
         pass

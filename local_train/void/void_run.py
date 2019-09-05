@@ -54,15 +54,11 @@ class ControlVariate(nn.Module):
     def __init__(self, psi_dim):
         super(ControlVariate, self).__init__()
         self.lin1 = nn.Linear(psi_dim, 5)
-        self.lin2 = nn.Linear(5, 5)
-        self.lin3 = nn.Linear(5, 5)
-        self.lin4 = nn.Linear(5, 1)
+        self.lin2 = nn.Linear(5, 1)
 
     def forward(self, x):
-        x = F.relu(self.lin1(x))
-        x = F.relu(self.lin2(x))
-        x = F.relu(self.lin3(x))
-        x = self.lin4(x)
+        x = F.tanh(self.lin1(x))
+        x = self.lin2(x)
         return x
 
 
@@ -93,7 +89,7 @@ class VoidOptimizer(BaseOptimizer):
         self._policy = NormalPolicy()
         self._control_variate = control_variate(len(x)).to(oracle.device)
         self._control_variate_parameters = list(self._control_variate.parameters())
-        self._sigma = torch.zeros_like(self._x, requires_grad=True)
+        self._sigma = torch.zeros_like(self._x, requires_grad=True).to(oracle.device)
         self._K = K
         self._num_repetitions = num_repetitions
         self._optimizer = optim.Adam(
@@ -130,23 +126,26 @@ class VoidOptimizer(BaseOptimizer):
         self._sigma.grad = torch.zeros_like(self._sigma)
         for parameter in self._control_variate_parameters:
             parameter.grad = torch.zeros_like(parameter)
-        for i in range(self._K):
-            action = self._policy(self._x, self._sigma)
-            r = self._oracle.func(action, num_repetitions=self._num_repetitions)
-            c = self._control_variate(action)
-            log_prob = self._policy.log_prob(mu=self._x, sigma=self._sigma, x=action.detach()).mean()
 
-            x_grad_1, sigma_grad_1 = grad([log_prob], [self._x, self._sigma], retain_graph=True, create_graph=True)
-            x_grad_2, sigma_grad_2 = grad([c], [self._x, self._sigma], retain_graph=True, create_graph=True)
+        action = self._policy(self._x, self._sigma, N=self._K)
+        r = self._oracle.func(action, num_repetitions=self._num_repetitions).view(-1, 1)
+        print(self._x, r.mean())
+        c = self._control_variate(action)
+        log_prob = self._policy.log_prob(mu=self._x, sigma=self._sigma, x=action.detach()).mean()
 
-            x_grad = x_grad_1 * (r - c) + x_grad_2
-            sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
-            parameters_grad = grad([x_grad.pow(2).sum() + sigma_grad.pow(2).sum()], self._control_variate_parameters)
-            with torch.no_grad():
-                self._x.grad.data += x_grad.clone().detach() / self._K
-                self._sigma.grad.data += sigma_grad.clone().detach() / self._K
-                for parameter, parameter_grad in zip(self._control_variate_parameters, parameters_grad):
-                    parameter.grad.data += parameter_grad.clone().detach()
+        x_grad_1, sigma_grad_1 = grad([log_prob], [self._x, self._sigma], retain_graph=True, create_graph=True)
+        x_grad_2, sigma_grad_2 = grad([c.mean()], [self._x, self._sigma], retain_graph=True, create_graph=True)
+
+        x_grad = x_grad_1 * (r - c) + x_grad_2
+        sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
+
+        parameters_grad = grad([x_grad.mean(dim=0).pow(2).mean() + sigma_grad.mean(dim=0).pow(2).mean()],
+                               self._control_variate_parameters)
+        with torch.no_grad():
+            self._x.grad = x_grad.mean(dim=0).clone().detach()
+            self._sigma.grad = sigma_grad.mean(dim=0).clone().detach()
+            for parameter, parameter_grad in zip(self._control_variate_parameters, parameters_grad):
+                parameter.grad = parameter_grad.clone().detach()
 
         self._d_k = self._x.grad.clone().detach()
         d_k = self._x.grad.clone().detach()
@@ -184,7 +183,7 @@ def main(
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
-
+    print(psi_dim, init_psi)
     optimized_function_cls = str_to_class(optimized_function)
 
     experiment = Experiment(project_name=project_name, workspace=work_space)

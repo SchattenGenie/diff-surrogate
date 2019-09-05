@@ -11,7 +11,7 @@ from logger import SimpleLogger, CometLogger
 from num_diff_schemes import compute_gradient_of_vector_function
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
-from model import YModel
+from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import GradientDescentOptimizer, ConjugateGradientsOptimizer, LBFGSOptimizer, \
