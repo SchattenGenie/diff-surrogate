@@ -15,6 +15,7 @@ class LearnToSimModel(BaseConditionalGenerationOracle):
                  policy_std=0.05):
         super().__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         # self._psi = init_psi.clone()
+        self._device = y_model.device
         self.baselines = torch.zeros([n_samples]).to(self.device)
         self.ewma_alpha = 0.05
 
@@ -24,12 +25,23 @@ class LearnToSimModel(BaseConditionalGenerationOracle):
         self.n_samples = n_samples # K in the initial paper
         self.n_samples_per_dim = n_samples_per_dim # train_size in the paper
 
+    @property
+    def device(self):
+        """
+        Just a nice class to get current device of the model
+        Might be error-prone thou
+        :return: torch.device
+        """
+        return self._device
+
     def fit(self, x, current_psi):
         pass
 
     # num_repetitions is not used there, only to match interface
-    def grad(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
-        self._psi = condition
+    # function will return gradients - so it will maximise the function
+    # this is to match our interface
+    def grad(self, condition: torch.Tensor, num_repetitions: int = None, update_baselines=False) -> torch.Tensor:
+        self._psi = condition.clone().detach()
         self._psi.requires_grad_(True)
         self.policy = torch.distributions.Normal(self._psi, torch.Tensor([np.sqrt(self._policy_std)]).to(self.device))
 
@@ -46,8 +58,9 @@ class LearnToSimModel(BaseConditionalGenerationOracle):
         reinforce_loss = torch.mean(log_grads * advantage)
         psi_grad = torch.autograd.grad(reinforce_loss, self._psi)[0]
 
-        self.baselines = rewards * self.ewma_alpha + (1 - self.ewma_alpha) * self.baselines
-        return psi_grad.detach()
+        if update_baselines:
+            self.baselines = rewards * self.ewma_alpha + (1 - self.ewma_alpha) * self.baselines
+        return -psi_grad.detach()
 
     def generate(self, condition):
         return self._y_model.generate(condition)

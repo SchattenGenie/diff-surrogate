@@ -8,7 +8,7 @@ sys.path.append('../')
 sys.path.append('../..')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel
+                  LearningToSimGaussianModel, BernoulliModel
 from optimizer import *
 from lts_model import LearnToSimModel
 from logger import SimpleLogger, CometLogger, GANLogger
@@ -102,11 +102,12 @@ def end_to_end_training(epochs: int,
         print(current_psi, status)
         try:
             # logging optimization, i.e. statistics of psi
+            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
             logger.log_optimizer(optimizer)
-            logger.log_gan_samples(model, y_sampler, current_psi)
+            # logger.log_gan_samples(model, y_sampler, current_psi)
             # logger.log_oracle(oracle=model,
             #                   y_sampler=y_sampler,
             #                   current_psi=current_psi,
@@ -165,7 +166,7 @@ def main(model,
     model_config['psi_dim'] = psi_dim
     model_config['n_samples'] = n_samples
     model_config['n_samples_per_dim'] = n_samples_per_dim
-    optimizer_config['x_step'] = step_data_gen
+    # optimizer_config['x_step'] = step_data_gen
 
     optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)

@@ -9,7 +9,7 @@ sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel
-from ffjord_model import FFJORDModel
+# from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
@@ -137,6 +137,7 @@ def end_to_end_training(epochs: int,
         print(current_psi, status)
         try:
             # logging optimization, i.e. statistics of psi
+            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
@@ -147,7 +148,7 @@ def end_to_end_training(epochs: int,
                                   y_sampler=y_sampler,
                                   current_psi=current_psi,
                                   step_data_gen=step_data_gen,
-                                  num_samples=50)
+                                  num_samples=200)
         except Exception as e:
             print(e)
             print(print(traceback.format_exc()))
@@ -201,7 +202,7 @@ def main(model,
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim
-    optimizer_config['x_step'] = step_data_gen
+    # optimizer_config['x_step'] = step_data_gen
 
     optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)

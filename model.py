@@ -167,8 +167,7 @@ class GaussianMixtureHumpModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
-                 x_dim=2,
-                 y_dim=1,
+                 x_dim=2, y_dim=1,
                  loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
@@ -402,8 +401,6 @@ class SHiPModel(YModel):
         self._device = device
         self._cut_veto = cut_veto
         self._address = address
-        self._left_bound = -200
-        self._right_bound = 200
 
     def sample_x(self, num_repetitions):
         p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
@@ -579,7 +576,7 @@ class BernoulliModel(YModel):
 
     def _generate_dist(self, psi, x):
         latent_psi = torch.sigmoid(psi + x)
-        return dist.RelaxedBernoulli(torch.tensor(0.0001).float().to(psi.device), logits=latent_psi)
+        return dist.RelaxedBernoulli(torch.tensor(0.0001).float().to(psi.device), probs=latent_psi)
 
     def _generate(self, psi, x):
         return pyro.sample('y', self._generate_dist(psi, x))
