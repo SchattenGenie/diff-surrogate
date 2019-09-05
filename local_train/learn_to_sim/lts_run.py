@@ -30,7 +30,7 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 print("Using device = {}".format(device))
-
+torch.autograd.set_detect_anomaly(True)
 
 def str_to_class(classname: str):
     """
@@ -102,7 +102,7 @@ def end_to_end_training(epochs: int,
         print(current_psi, status)
         try:
             # logging optimization, i.e. statistics of psi
-            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
+            # logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
@@ -161,6 +161,7 @@ def main(model,
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
+    print(optimizer_config)
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim

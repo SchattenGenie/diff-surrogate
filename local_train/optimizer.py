@@ -390,10 +390,11 @@ class TorchOptimizer(BaseOptimizer):
     def _step(self):
         init_time = time.time()
 
-        d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
-        self._x.grad = d_k
-        self._base_optimizer.step()
         self._base_optimizer.zero_grad()
+        d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
+        self._x.grad = d_k.detach().clone()
+        self._base_optimizer.step()
+
         print("PSI", self._x)
         super()._post_step(init_time)
         grad_norm = torch.norm(d_k).item()

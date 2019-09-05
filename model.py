@@ -289,7 +289,9 @@ class LearningToSimGaussianModel(YModel):
             assignment = pyro.sample('assignment', dist.Categorical(probs))#.to(self._device)
             means = psi[class_index][:, means_index].reshape(-1, 3, 2).to(torch.device('cpu'))
             stds = psi[class_index][:, std_index].reshape(-1, 3, 2).repeat(1, 1, 2).reshape(-1, 3, 2, 2).to(torch.device('cpu'))
-            stds[:, :, 1, :] = stds[:, :, 1, [1, 0]]
+            stds = torch.stack([stds[:, :, 0, :], stds[:, :, 1, [1, 0]]], dim=-2)
+            # inplace operator sometimes crashes optimization procedure
+            # stds[:, :, 1, :] = stds[:, :, 1, [1, 0]]
             n_dist = dist.MultivariateNormal(means.gather(1, assignment.view(-1, 1).unsqueeze(2).repeat(1, 1, 2)),
                                              stds.gather(1,  assignment.view(-1, 1).unsqueeze(2).unsqueeze(3).repeat(1, 1, 2, 2)))
 
