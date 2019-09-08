@@ -8,14 +8,12 @@ from typing import Callable
 sys.path.append('../')
 from typing import List, Union
 from logger import SimpleLogger, CometLogger
-from num_diff_schemes import compute_gradient_of_vector_function
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
-from optimizer import GradientDescentOptimizer, ConjugateGradientsOptimizer, LBFGSOptimizer, \
-                      GPOptimizer, NewtonOptimizer
+from optimizer import *
 
 
 def get_freer_gpu():
@@ -65,10 +63,10 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
 
     @property
     def device(self):
-        return self._y_model._device
+        return self._y_model.device
 
     def func(self, condition, **kwargs):
-        condition = torch.tensor(condition)
+        condition = torch.tensor(condition).float()
         self._n_calls += 1
         return self._y_model.func(condition, num_repetitions=self._num_repetitions)
 
@@ -148,11 +146,21 @@ def main(
                                       h=h,
                                       num_repetitions=num_repetitions,
                                       grad_func=grad_func)
+
+    max_iters = optimizer_config['max_iters']
+    optimizer_config['max_iters'] = 1
     optimizer = optimizer_cls(oracle=ndiff, x=init_psi, **optimizer_config)
-    optimizer.optimize()
+
+    for iter in range(max_iters):
+        current_psi, status, history = optimizer.optimize()
+        print(current_psi)
+        if iter % 10 == 0:
+            logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
+            logger.log_performance(y_sampler=y_model,
+                                   current_psi=current_psi,
+                                   n_samples=5000)
+
     logger.log_optimizer(optimizer)
-
-
 
 
 if __name__ == "__main__":
