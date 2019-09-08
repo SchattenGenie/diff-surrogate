@@ -21,7 +21,7 @@ class YModel(BaseConditionalGenerationOracle):
                  loss=lambda y: OptLoss.SigmoidLoss(y, 5, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
-                                     x_dim=1, y_dim=y_dim) # hardcoded values
+                                     x_dim=1, y_dim=y_dim)  # hardcoded values
         self._psi_dist = dist.Delta(psi_init.to(device))
         self._x_dist = dist.Uniform(*x_range)
         self._psi_dim = len(psi_init)

@@ -9,13 +9,14 @@ sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel
-# from ffjord_model import FFJORDModel
+from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
 from logger import SimpleLogger, CometLogger, GANLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
+from experience_replay import ExperienceReplay
 
 
 def get_freer_gpu():
@@ -89,7 +90,11 @@ def end_to_end_training(epochs: int,
     optimizer = optimizer_cls(oracle=model,
                               x=current_psi,
                               **optimizer_config)
-
+    exp_replay = ExperienceReplay(
+        psi_dim=model_config['psi_dim'],
+        y_dim=model_config['y_dim'],
+        x_dim=model_config['x_dim'],
+        device=device)
     gan_logger = GANLogger(experiment)
     for epoch in range(epochs):
         # generate new data sample
@@ -99,6 +104,8 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
+        exp_replay.add(y=x, condition=condition)
+        x, condition = exp_replay.extract(psi=current_psi, step=step_data_gen)
         print(x.shape, condition.shape)
         if reuse_model:
             if shift_model:
@@ -202,7 +209,7 @@ def main(model,
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim
-    # optimizer_config['x_step'] = step_data_gen
+    optimizer_config['x_step'] = step_data_gen
 
     optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)

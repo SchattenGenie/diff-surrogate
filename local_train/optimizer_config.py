@@ -1,8 +1,7 @@
 optimizer_config = {
-    'lr': 0.1,
-    'num_repetitions': 2000,
-    'max_iters': 10,
-#     'x_step': 1.,
+    'lr': 1e-2,
+    'num_repetitions': 10000,
+    'max_iters': 5,
      'line_search_options': {
          "method": 'Wolfe',
          'c0': 1.,
