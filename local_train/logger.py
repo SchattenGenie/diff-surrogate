@@ -455,7 +455,7 @@ class CometLogger(SimpleLogger):
 
         # self.log_gan_samples(oracle, y_sampler, current_psi)
 
-    def log_performance(self, y_sampler, current_psi, n_samples):
+    def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
         self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
@@ -469,22 +469,26 @@ class CometLogger(SimpleLogger):
         psi_grad = self._perfomance_logs['psi_grad'][-1]
         self._experiment.log_metric('Psi grad norm', np.linalg.norm(psi_grad), step=self._epoch)
 
-        with open("psi_list.pkl", 'wb') as f:
-            pickle.dump(self._optimizer_logs['x'], f)
-        self._experiment.log_asset("psi_list.pkl", overwrite=True, copy_to_tmp=False)
+        if upload_pickle:
+            with open("psi_list.pkl", 'wb') as f:
+                pickle.dump(self._optimizer_logs['x'], f)
+            self._experiment.log_asset("psi_list.pkl", overwrite=True, copy_to_tmp=False)
 
         self._epoch += 1
+
 
     def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20):
         _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
 
         # LTS does not support vectorized psis yet, so we use loop
-        if type(oracle).__name__ == "LearnToSimModel":
+        if type(oracle).__name__ in ["LearnToSimModel", "VoidModel", "NumericalDifferencesModel"]:
             model_grads_list = []
             for index in range(n_samples):
-                model_grads_list.append(oracle.grad(_current_psi[index, :], update_baselines=False).detach())
+                model_grads_list.append(oracle.grad(_current_psi[index, :],
+                                                    update_baselines=False, update_policy=False).detach())
             model_grad_value = torch.stack(model_grads_list).detach()
         else:
+            # TODO: check gradient estimation
             model_grad_value = oracle.grad(_current_psi, num_repetitions=num_repetitions)
 
         true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)

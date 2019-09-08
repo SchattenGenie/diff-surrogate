@@ -40,7 +40,7 @@ class LearnToSimModel(BaseConditionalGenerationOracle):
     # num_repetitions is not used there, only to match interface
     # function will return gradients - so it will maximise the function
     # this is to match our interface
-    def grad(self, condition: torch.Tensor, num_repetitions: int = None, update_baselines=False) -> torch.Tensor:
+    def grad(self, condition: torch.Tensor, num_repetitions: int = None, update_baselines=False, **kwargs) -> torch.Tensor:
         self._psi = condition.clone().detach()
         self._psi.requires_grad_(True)
         self.policy = torch.distributions.Normal(self._psi, torch.Tensor([np.sqrt(self._policy_std)]).to(self.device))
