@@ -137,9 +137,9 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
-            return grad([self.func(condition, num_repetitions=num_repetitions).mean()], [condition])[0]
+            return grad([self.func(condition, num_repetitions=num_repetitions).sum()], [condition])[0]
         else:
-            return grad([self.func(condition).mean()], [condition])[0]
+            return grad([self.func(condition).sum()], [condition])[0]
 
     def hessian(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
         """
@@ -153,9 +153,9 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         if isinstance(num_repetitions, int):
-            return hessian_calc(self.func(condition, num_repetitions=num_repetitions).mean(), condition)
+            return hessian_calc(self.func(condition, num_repetitions=num_repetitions).sum(), condition)
         else:
-            return hessian_calc(self.func(condition).mean(), condition)
+            return hessian_calc(self.func(condition).sum(), condition)
 
 
 class ShiftedOracle:
