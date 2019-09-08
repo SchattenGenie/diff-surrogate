@@ -1,6 +1,6 @@
 optimizer_config = {
-    'lr': 1e-2,
-    'K': 1,
-    'max_iters': 10000,
-    'num_repetitions': 5000
+    'lr': 1,
+    'max_iters': 20000,
+    'num_repetitions': 5000,
+    'torch_model': 'Adam',
 }
