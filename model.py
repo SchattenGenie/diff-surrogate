@@ -460,6 +460,7 @@ class SHiPModel(YModel):
 
     def _generate(self, condition, num_repetitions):
         uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
+        time.sleep(2.)
         data = self._request_data(uuid, wait=True)
         return data
 
@@ -478,7 +479,7 @@ class SHiPModel(YModel):
         # and collect computation results from SHiP service
         uuids_processed = []
         while len(uuids):
-            time.sleep(2.)
+            time.sleep(5.)
             for uuid in uuids:
                 answer = self._request_data(uuid, wait=False)
                 if (answer == 'failed') or (answer is not None):
