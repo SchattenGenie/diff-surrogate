@@ -167,7 +167,7 @@ def main(model,
     model_config['psi_dim'] = psi_dim
     model_config['n_samples'] = n_samples
     model_config['n_samples_per_dim'] = n_samples_per_dim
-    # optimizer_config['x_step'] = step_data_gen
+    optimizer_config['x_step'] = step_data_gen
 
     optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)

@@ -228,6 +228,9 @@ def main(model,
     experiment.log_parameters(
         {"optimizer_{}".format(key): value for key, value in optimizer_config.get('line_search_options', {}).items()}
     )
+    experiment.log_parameters(
+        {"optimizer_{}".format(key): value for key, value in optimizer_config.get('optim_params', {}).items()}
+    )
     # experiment.log_asset("./gan_model.py", overwrite=True)
     # experiment.log_asset("./optim.py", overwrite=True)
     # experiment.log_asset("./train.py", overwrite=True)
