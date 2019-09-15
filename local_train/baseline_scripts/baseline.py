@@ -10,7 +10,7 @@ from typing import List, Union
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
-from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel
+from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, SHiPModel
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *
@@ -153,8 +153,8 @@ def main(
 
     for iter in range(max_iters):
         current_psi, status, history = optimizer.optimize()
-        print(current_psi)
-        if iter % 10 == 0:
+        #print(current_psi)
+        if iter % 1 == 0:
             logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
             logger.log_performance(y_sampler=y_model,
                                    current_psi=current_psi,
