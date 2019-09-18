@@ -10,3 +10,4 @@ local_train/tmp
 *.pcl
 *.pyc
 local_train/tmp
+.idea
