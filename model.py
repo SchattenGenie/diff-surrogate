@@ -148,17 +148,14 @@ class RosenbrockModel(YModel):
 
 
 def generate_covariance(n=100, a=2):
-    n = 100
-    a = 2
-
     A = np.matrix([np.random.randn(n) + np.random.randn(1) * a for i in range(n)])
-    A = A*np.transpose(A)
+    A = A * np.transpose(A)
     D_half = np.diag(np.diag(A)**(-0.5))
     C = D_half * A * D_half
-    return C
+    return np.array(C)
 
 
-class RosenbrockModelDegenerate(YModel):
+class ModelDegenerate(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
@@ -172,26 +169,53 @@ class RosenbrockModelDegenerate(YModel):
         self._device = device
         torch.manual_seed(1337)
         # self._mixing_matrix = torch.tensor(scipy.linalg.hilbert(self._psi_dim)[:, :2]).float().to(self._device)
-        self._mixing_matrix = torch.randn(self._psi_dim, self._psi_dim + 1).float().to(self._device)
-        self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
-        # self._mixing_covariance = torch.tensor(generate_covariance).float().to(self._device)
+        self._mixing_matrix = torch.randn(self._psi_dim, 500).float().to(self._device)
+        # self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
+        self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._psi_dim))).float().to(self._device)
         self.loss = loss
 
     def _generate_dist(self, psi, x):
         latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
 
-        psi_z = dist.Normal(torch.zeros_like(psi), torch.ones_like(psi)).sample()
+        psi_z = dist.Normal(torch.zeros_like(psi), torch.ones_like(psi) / 100.).sample()
         psi = torch.mm(psi_z, self._mixing_covariance) + psi
-        psi = torch.mm(psi, self._mixing_matrix)
-        # psi = dist.MultivariateNormal(psi, self._mixing_covariance).sample()
+        # psi = torch.mm(psi, self._mixing_matrix)
         latent_psi = self.g(psi)
         return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
-
 
     @staticmethod
     def g(x):
         return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+
+class ModelInstrict(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        torch.manual_seed(1337)
+        self._mask = (torch.range(0, self._psi_dim - 1) % 2 == 0).byte()
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+        psi = psi[:, self._mask]
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
+
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
 
 class MultimodalSingularityModel(YModel):
     def __init__(self, device,
@@ -614,7 +638,6 @@ class SHiPModel(YModel):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         return torch.zeros_like(condition)
-
 
 
 class BernoulliModel(YModel):

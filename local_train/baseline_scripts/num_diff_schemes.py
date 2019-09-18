@@ -47,7 +47,6 @@ def compute_gradient_of_vector_function(f: Callable,
                                         scheme: Callable):
     dim = len(x)
     partial_derivatives = Parallel(n_jobs=dim, prefer="threads")(delayed(scheme)(f=partial(partial_function, f=f, x=x, i=i), x=x[i], n=n, h=h) for i in range(dim))
-    print(partial_derivatives)
     # partial_derivatives = []
     # for i in range(dim):
     #    partial_derivatives.append(

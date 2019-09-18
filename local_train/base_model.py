@@ -168,14 +168,22 @@ class ShiftedOracle:
 
     def __getattr__(self, attr):
         orig_attr = self._oracle.__getattribute__(attr)
-        print()
+        if not hasattr(orig_attr, '__name__'):
+            return orig_attr
         if orig_attr.__name__ in [
             'func',
             'grad',
             'hessian']:
             def hooked(*args, **kwargs):
                 with torch.no_grad():
-                    kwargs['condition'] = kwargs['condition'] - self._shift
+                    if 'condition' in kwargs:
+                        condition = kwargs['condition']
+                    else:
+                        condition = args[0]
+                        args = args[1:]
+                    condition = condition.clone().detach()
+                    condition = condition - self._shift
+                    kwargs['condition'] = condition
                 result = orig_attr(*args, **kwargs)
                 if result is self._oracle:
                     return self
@@ -187,7 +195,14 @@ class ShiftedOracle:
             'generate']:
             def hooked(*args, **kwargs):
                 with torch.no_grad():
-                    kwargs['condition'][:, :len(self._shift)] = kwargs['condition'][:, :len(self._shift)] - self._shift
+                    if 'condition' in kwargs:
+                        condition = kwargs['condition']
+                    else:
+                        condition = args[0]
+                        args = args[1:]
+                    condition = condition.clone().detach()
+                    kwargs['condition'] = condition
+                    kwargs['condition'] = kwargs['condition'][:, :len(self._shift)] - self._shift
                 result = orig_attr(*args, **kwargs)
                 if result is self._oracle:
                     return self

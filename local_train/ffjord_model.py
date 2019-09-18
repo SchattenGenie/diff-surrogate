@@ -30,7 +30,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  epochs: int = 10,
                  bn_lag: float = 1e-3,
                  batch_norm: bool = True,
-                 solver='dopri5',
+                 solver='fixed_adams',
                  hidden_dims: Tuple[int] = (32, 32),
                  **kwargs):
         super(FFJORDModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
@@ -79,7 +79,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         return self._density_fn(y, condition)
 
     def train(self):
-        super().train()
+        super().train(True)
         for module in self._model.modules():
             if hasattr(module, 'odeint'):
                 module.__setattr__('odeint', odeint_adjoint)

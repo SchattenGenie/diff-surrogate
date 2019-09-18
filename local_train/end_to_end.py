@@ -8,7 +8,7 @@ import numpy as np
 sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, SHiPModel, BernoulliModel
+                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, ModelDegenerate
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
@@ -85,8 +85,10 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
+    gan_logger = GANLogger(experiment)
+
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
-    model = model_cls(y_model=y_sampler, **model_config).to(device)
+    model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
     optimizer = optimizer_cls(oracle=model,
                               x=current_psi,
                               **optimizer_config)
@@ -95,7 +97,7 @@ def end_to_end_training(epochs: int,
         y_dim=model_config['y_dim'],
         x_dim=model_config['x_dim'],
         device=device)
-    gan_logger = GANLogger(experiment)
+
     for epoch in range(epochs):
         # generate new data sample
         # condition
@@ -107,15 +109,15 @@ def end_to_end_training(epochs: int,
         exp_replay.add(y=x, condition=condition)
         x, condition = exp_replay.extract(psi=current_psi, step=step_data_gen)
         print(x.shape, condition.shape)
+        model.train()
         if reuse_model:
             if shift_model:
                 if isinstance(model, ShiftedOracle):
-                    model.set_shift(condition.mean(dim=0))
+                    model.set_shift(current_psi.clone().detach())
                 else:
-                    model = ShiftedOracle(oracle=model, shift=condition.mean(dim=0))
+                    model = ShiftedOracle(oracle=model, shift=current_psi.clone().detach())
                 model.fit(x, condition=condition)
-            elif finetune_model:
-                # model.refit(x, condition=condition)
+            else:
                 model.fit(x, condition=condition)
         else:
             # if not reusing model
@@ -139,7 +141,6 @@ def end_to_end_training(epochs: int,
             add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
         current_psi, status, history = optimizer.optimize()
-        # with torch.no_grad(): current_psi += shift
 
         print(current_psi, status)
         try:
