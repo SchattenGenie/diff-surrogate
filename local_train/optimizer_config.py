@@ -1,5 +1,5 @@
 optimizer_config = {
-    'lr': 1e-2,
+    'lr': 1e-1,
     'num_repetitions': 10000,
     'max_iters': 5,
      'line_search_options': {
@@ -8,5 +8,5 @@ optimizer_config = {
          'c1': 1e-4,
          'c2': 0.5,
      },
-    'torch_model': 'RMSprop',
+    'torch_model': 'Adam',
 }

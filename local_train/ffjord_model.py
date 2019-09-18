@@ -12,7 +12,9 @@ from torchdiffeq import odeint_adjoint
 from torchdiffeq import odeint
 from ffjord.custom_model import build_model_tabular, get_transforms, compute_loss
 import lib.layers as layers
+from tqdm import tqdm, trange
 from typing import Tuple
+import swats
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -23,9 +25,12 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  x_dim: int,
                  psi_dim: int,
                  y_dim: int,
-                 num_blocks: int = 3,
+                 num_blocks: int = 1,
                  lr: float = 1e-3,
                  epochs: int = 10,
+                 bn_lag: float = 1e-3,
+                 batch_norm: bool = True,
+                 solver='dopri5',
                  hidden_dims: Tuple[int] = (32, 32),
                  **kwargs):
         super(FFJORDModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
@@ -39,10 +44,10 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                                           num_blocks=num_blocks,
                                           rademacher=False,
                                           nonlinearity='tanh',
-                                          solver='rk4',
+                                          solver=solver,
                                           hidden_dims=hidden_dims,
-                                          bn_lag=0.01,
-                                          batch_norm=True,
+                                          bn_lag=bn_lag,
+                                          batch_norm=batch_norm,
                                           regularization_fns=None)
         self._sample_fn, self._density_fn = get_transforms(self._model)
         self._epochs = epochs
@@ -53,10 +58,14 @@ class FFJORDModel(BaseConditionalGenerationOracle):
 
     def fit(self, y, condition):
         trainable_parameters = list(self._model.parameters())
-        optimizer = torch.optim.Adam(trainable_parameters, lr=self._lr)
-        for epoch in range(self._epochs):
-            loss = self.loss(y, condition)
+        optimizer = swats.SWATS(trainable_parameters, lr=self._lr, verbose=True)
+        # optimizer = torch.optim.SGD(trainable_parameters, lr=self._lr)
+        trange_cycle = trange(self._epochs, desc='Bar desc', leave=True)
+        for epoch in trange_cycle:
             optimizer.zero_grad()
+            loss = self.loss(y, condition)
+            trange_cycle.set_description("Bar desc (loss={}".format(loss.item()))
+            trange_cycle.refresh()
             loss.backward()
             optimizer.step()
         return self
@@ -76,7 +85,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                 module.__setattr__('odeint', odeint_adjoint)
 
     def eval(self):
-        super().train()
-        for module in self._model.modules():
-            if hasattr(module, 'odeint'):
-                module.__setattr__('odeint', odeint)
+        super().train(False)
+        # for module in self._model.modules():
+        #   if hasattr(module, 'odeint'):
+        #        module.__setattr__('odeint', odeint)
