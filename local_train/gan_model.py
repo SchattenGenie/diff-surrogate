@@ -1,5 +1,5 @@
 from base_model import BaseConditionalGenerationOracle
-from gan_nets import Generator, Discriminator
+from gan_nets import Generator, Discriminator, Attention
 from gan_nets import GANLosses
 import torch
 import torch.utils.data as pytorch_data_utils
@@ -21,12 +21,17 @@ class GANModel(BaseConditionalGenerationOracle):
                  grad_penalty: bool = False,
                  zero_centered_grad_penalty: bool = False,
                  instance_noise_std: float = None,
-                 logger=None):
+                 logger=None,
+                 burn_in_period=None,
+                 averaging_coeff=None,
+                 dis_output_dim=1,
+                 attention_net_size=None):
         super(GANModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
-        if task == 'WASSERSTEIN':
-            wasserstein = True
+        if task in ['WASSERSTEIN', "CRAMER"]:
+            output_logits = True
         else:
-            wasserstein = False
+            output_logits = False
+        self._task = task
         self._noise_dim = noise_dim
         self._psi_dim = psi_dim
         self._y_dim = y_dim
@@ -40,15 +45,25 @@ class GANModel(BaseConditionalGenerationOracle):
         self._iters_discriminator = iters_discriminator
         self._iters_generator = iters_generator
         self._ganloss = GANLosses(task=task)
+
+        if attention_net_size:
+            self.attention_net = Attention(psi_dim=self._psi_dim, hidden_dim=attention_net_size)
+        else:
+            self.attention_net = None
         self._generator = Generator(noise_dim=self._noise_dim,
                                     out_dim=self._y_dim,
                                     psi_dim=self._psi_dim,
-                                    x_dim=self._x_dim)
+                                    x_dim=self._x_dim, attention_net=self.attention_net)
         self._discriminator = Discriminator(in_dim=self._y_dim,
-                                            wasserstein=wasserstein,
+                                            output_logits=output_logits,
                                             psi_dim=self._psi_dim,
-                                            x_dim=self._x_dim)
+                                            x_dim=self._x_dim,
+                                            output_dim=dis_output_dim, attention_net=None)
+
         self.logger = logger
+        self.burn_in_period = burn_in_period
+        self.averaging_coeff = averaging_coeff
+        self.gen_average_weights = []
 
     @staticmethod
     def instance_noise(data, std):
@@ -76,18 +91,33 @@ class GANModel(BaseConditionalGenerationOracle):
                     if self._instance_noise_std:
                         y_batch = self.instance_noise(y_batch, self._instance_noise_std)
                         y_gen = self.instance_noise(y_gen, self._instance_noise_std)
-                    loss = self._ganloss.d_loss(self.loss(y_gen, cond_batch),
-                                                self.loss(y_batch, cond_batch))
-                    if self._grad_penalty:
-                        loss += self._ganloss.calc_gradient_penalty(self._discriminator,
-                                                                    y_gen.data,
-                                                                    y_batch.data,
-                                                                    condition.data)
+
+                    if self._task == "CRAMER":
+                        y_gen_prime = self.generate(condition=cond_batch)
+                        loss = self._ganloss.d_loss(self.loss(y_gen, cond_batch),
+                                                    self.loss(y_batch, cond_batch),
+                                                    self.loss(y_gen_prime, cond_batch))
+                        if self._grad_penalty:
+                            loss += self._ganloss.calc_gradient_penalty(self._discriminator,
+                                                                        y_gen.data,
+                                                                        y_batch.data,
+                                                                        cond_batch.data,
+                                                                        data_gen_prime=y_gen_prime.data,
+                                                                        lambda_reg=10)
+                    else:
+                        loss = self._ganloss.d_loss(self.loss(y_gen, cond_batch),
+                                                    self.loss(y_batch, cond_batch))
+                        if self._grad_penalty:
+                            loss += self._ganloss.calc_gradient_penalty(self._discriminator,
+                                                                        y_gen.data,
+                                                                        y_batch.data,
+                                                                        cond_batch.data)
+
                     if self._zero_centered_grad_penalty:
                         loss -= self._ganloss.calc_zero_centered_GP(self._discriminator,
                                                                     x_gen.data,
                                                                     y_batch.data,
-                                                                    condition.data)
+                                                                    cond_batch.data)
 
                     d_optimizer.zero_grad()
                     loss.backward()
@@ -98,19 +128,40 @@ class GANModel(BaseConditionalGenerationOracle):
                     y_gen = self.generate(cond_batch)
                     if self._instance_noise_std:
                         y_batch = self.instance_noise(y_batch, self._instance_noise_std)
-                    loss = self._ganloss.g_loss(self.loss(y_gen, cond_batch))
+                    if self._task == "CRAMER":
+                        y_gen_prime = self.generate(condition=cond_batch)
+                        loss = self._ganloss.g_loss(self.loss(y_gen, cond_batch),
+                                                    self.loss(y_gen_prime, cond_batch),
+                                                    self.loss(y_batch, cond_batch))
+                    else:
+                        loss = self._ganloss.g_loss(self.loss(y_gen, cond_batch))
                     g_optimizer.zero_grad()
                     loss.backward()
                     g_optimizer.step()
                 gen_epoch_loss.append(loss.item())
 
+            if self.burn_in_period is not None:
+                if epoch >= self.burn_in_period:
+                    if not self.gen_average_weights:
+                        for param in self._generator.parameters():
+                            self.gen_average_weights.append(param.detach().clone())
+                    else:
+                        for av_weight, weight in zip(self.gen_average_weights, self._generator.parameters()):
+                            av_weight.data = self.averaging_coeff * av_weight.data + \
+                                             (1 - self.averaging_coeff) * weight.data
+
             if self.logger:
+                if self.attention_net:
+                    self.logger._experiment.log_metric("GAMMA", self.attention_net.gamma.item(), step=self.logger._epoch)
                 self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
                 self.logger.log_validation_metrics(self._y_model, y, condition, self,
                                                    (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
                                                     condition[:, :self._psi_dim].max(dim=0)[0].view(-1)))
                 self.logger.add_up_epoch()
 
+        if self.burn_in_period is not None:
+            for av_weight, weight in zip(self.gen_average_weights, self._generator.parameters()):
+                weight.data = av_weight.data
         return self
 
     def generate(self, condition):

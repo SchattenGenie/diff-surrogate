@@ -606,8 +606,10 @@ class CometLogger(SimpleLogger):
         print(current_psi.shape, y_sampler.sample_x(len(plot_psi)).shape)
         conditions = torch.cat([plot_psi, y_sampler.sample_x(len(plot_psi))], dim=1)
         gen_data = oracle.generate(conditions).detach().cpu()
-        class_one = gen_data[:, -1] > 0.5
-        # class_one = gen_data[:, -1] == 1
+        if type(oracle).__name__ == "LearnToSimModel":
+            class_one = gen_data[:, -1] == 1
+        else:
+            class_one = gen_data[:, -1] > 0.5
         plt.scatter(gen_data[class_one, 0], gen_data[class_one, 1], c='y', alpha=0.5)
         plt.scatter(gen_data[~class_one, 0], gen_data[~class_one, 1], c='g', alpha=0.5)
         plt.grid()
