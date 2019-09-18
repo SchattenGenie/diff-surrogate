@@ -5,6 +5,7 @@ from pyro import distributions as dist
 from local_train.base_model import BaseConditionalGenerationOracle
 from pyro import poutine
 import matplotlib.pyplot as plt
+import scipy
 from pyDOE import lhs
 import seaborn as sns
 import lhsmdu
@@ -145,6 +146,52 @@ class RosenbrockModel(YModel):
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
 
 
+def generate_covariance(n=100, a=2):
+    n = 100
+    a = 2
+
+    A = np.matrix([np.random.randn(n) + np.random.randn(1) * a for i in range(n)])
+    A = A*np.transpose(A)
+    D_half = np.diag(np.diag(A)**(-0.5))
+    C = D_half * A * D_half
+    return C
+
+
+class RosenbrockModelDegenerate(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        torch.manual_seed(1337)
+        # self._mixing_matrix = torch.tensor(scipy.linalg.hilbert(self._psi_dim)[:, :2]).float().to(self._device)
+        self._mixing_matrix = torch.randn(self._psi_dim, self._psi_dim + 1).float().to(self._device)
+        self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
+        # self._mixing_covariance = torch.tensor(generate_covariance).float().to(self._device)
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+
+        psi_z = dist.Normal(torch.zeros_like(psi), torch.ones_like(psi)).sample()
+        psi = torch.mm(psi_z, self._mixing_covariance) + psi
+        psi = torch.mm(psi, self._mixing_matrix)
+        # psi = dist.MultivariateNormal(psi, self._mixing_covariance).sample()
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
+
+
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
 class MultimodalSingularityModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
@@ -158,6 +205,7 @@ class MultimodalSingularityModel(YModel):
         self._psi_dim = len(psi_init)
         self._device = device
         self.loss = loss
+
     @staticmethod
     def g(x):
         return x.abs().sum(dim=1, keepdim=True) * ((-x.pow(2).sin().sum(dim=1, keepdim=True)).exp())
@@ -403,6 +451,8 @@ class SHiPModel(YModel):
         self._device = device
         self._cut_veto = cut_veto
         self._address = address
+        self._left_bound = -300
+        self._right_bound = 300
 
     def sample_x(self, num_repetitions):
         p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
@@ -433,23 +483,25 @@ class SHiPModel(YModel):
                 r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
                 r = json.loads(r.content)
             if r["container_status"] == "failed":
-                ValueError("Generation has failed!")
+                raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
             elif r["container_status"] == "exited":
                 return r
             return r
-        return None
+        return r
 
     def _request_uuid(self, condition, num_repetitions):
-        x_begin, x_end, y_begin, y_end, z = condition.detach().cpu().numpy()
-        r = requests.post(
-            "{}/simulate".format(self._address),
-            json=json.loads(json.dumps({
+        x_begin, x_end, y_begin, y_end, z = torch.clamp(condition, 1e-5, 1e5).detach().cpu().numpy()
+        d = {
                 "field": {"Y": 4, "X": 0.0, "Z": 0},
                 "shape": {'X_begin': x_begin, "X_end": x_end,
                           'Y_begin': y_begin, "Y_end": y_end, 'Z': z},
                 "num_repetitions": num_repetitions
-            }, cls=NumpyEncoder))
+            }
+        r = requests.post(
+            "{}/simulate".format(self._address),
+            json=json.loads(json.dumps(d, cls=NumpyEncoder))
         )
+        print(r.content, d)
         return r.content.decode()
 
     def _loss(self, data):
@@ -482,13 +534,16 @@ class SHiPModel(YModel):
             time.sleep(5.)
             for uuid in uuids:
                 answer = self._request_data(uuid, wait=False)
-                if (answer == 'failed') or (answer is not None):
+                # TODO: rewrite
+                if r["container_status"] == 'exited':
                     uuids_processed.append(uuid)
-                    if answer != 'failed':
-                        res[uuid] = answer
-                        res[uuid]['condition'] = uuids_to_condition[uuid]
-                    else:
-                        ValueError("Generation has failed for {}!".format(uuids_to_condition[uuid]))
+                    res[uuid] = answer
+                    res[uuid]['condition'] = uuids_to_condition[uuid]
+                elif r["container_status"] == 'failed':
+                    uuids_processed.append(uuid)
+                    # TODO: ignore?
+                    # raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
+
             uuids = list(set(uuids) - set(uuids_processed))
         return uuids_original, res
 
@@ -528,7 +583,7 @@ class SHiPModel(YModel):
 
         condition = step * (condition * 2 - 1) + current_psi
         condition = torch.tensor(condition).float().to(self.device)
-        torch.clamp(condition, 1e-5, 1e5)
+        condition = torch.clamp(condition, 1e-5, 1e5)
         uuids, data = self._generate_multiple(condition, num_repetitions=n_samples_per_dim)
         y = []
         xs = []
