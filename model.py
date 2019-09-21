@@ -146,6 +146,7 @@ class RosenbrockModel(YModel):
 
 
 def generate_covariance(n=100, a=2):
+    np.random.seed(1337)
     A = np.matrix([np.random.randn(n) + np.random.randn(1) * a for i in range(n)])
     A = A * np.transpose(A)
     D_half = np.diag(np.diag(A)**(-0.5))
