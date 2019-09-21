@@ -94,20 +94,15 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self.train()
         trainable_parameters = list(self._model.parameters())
         optimizer = swats.SWATS(trainable_parameters, lr=self._lr, verbose=True)
-        # optimizer = torch.optim.SGD(trainable_parameters, lr=self._lr)
-        trange_cycle = trange(self._epochs, desc='Bar desc', leave=True)
         best_params = self._model.state_dict()
         best_loss = 1e6
-        early_stopping = EarlyStopping(patience=500, verbose=True)
-        for epoch in trange_cycle:
+        early_stopping = EarlyStopping(patience=200, verbose=True)
+        for epoch in range(self._epochs):
             optimizer.zero_grad()
             loss = self.loss(y, condition)
             if loss.item() < best_loss:
                 best_params = copy.deepcopy(self._model.state_dict())
                 best_loss = loss.item()
-
-            trange_cycle.set_description("Bar desc (loss={}".format(loss.item()))
-            trange_cycle.refresh()
             early_stopping(loss.item(), self._model)
             if early_stopping.early_stop:
                 break

@@ -17,7 +17,7 @@ class ExperienceReplay:
 
     def extract(self, psi, step):
         psi = psi.float().to('cpu')
-        mask = ((self._condition[:, :self._psi_dim] - psi).abs() < step).all(dim=1)
+        mask = ((self._condition[:, :self._psi_dim] - psi).pow(2).sum(dim=1).sqrt() < step)  # sphere
         y = (self._y[mask]).to(self._device)
         condition = (self._condition[mask]).to(self._device)
         return y, condition
