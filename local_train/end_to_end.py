@@ -8,7 +8,10 @@ import numpy as np
 sys.path.append('../')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, ModelDegenerate
+                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, \
+                  ModelDegenerate, ModelInstrict, \
+                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
+
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
@@ -92,6 +95,7 @@ def end_to_end_training(epochs: int,
     optimizer = optimizer_cls(oracle=model,
                               x=current_psi,
                               **optimizer_config)
+    print(model_config)
     exp_replay = ExperienceReplay(
         psi_dim=model_config['psi_dim'],
         y_dim=model_config['y_dim'],
@@ -151,12 +155,14 @@ def end_to_end_training(epochs: int,
                                    n_samples=n_samples)
             logger.log_optimizer(optimizer)
             # too long for ship...
+            """
             if not isinstance(y_sampler, SHiPModel):
                 logger.log_oracle(oracle=model,
                                   y_sampler=y_sampler,
                                   current_psi=current_psi,
                                   step_data_gen=step_data_gen,
                                   num_samples=200)
+            """
         except Exception as e:
             print(e)
             print(traceback.format_exc())
@@ -177,6 +183,7 @@ def end_to_end_training(epochs: int,
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
 @click.option('--epochs', type=int, default=500)
 @click.option('--n_samples', type=int, default=10)
+@click.option('--lr', type=float, default=1e-1)
 @click.option('--step_data_gen', type=float, default=1.)
 @click.option('--n_samples_per_dim', type=int, default=3000)
 @click.option('--reuse_optimizer', type=bool, default=False)
@@ -201,6 +208,7 @@ def main(model,
          reuse_optimizer,
          reuse_model,
          shift_model,
+         lr,
          finetune_model,
          add_box_constraints,
          init_psi
@@ -211,6 +219,7 @@ def main(model,
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim
     optimizer_config['x_step'] = step_data_gen
+    optimizer_config['lr'] = lr
 
     optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)
@@ -238,6 +247,7 @@ def main(model,
     # experiment.log_asset("../model.py", overwrite=True)
 
     logger = str_to_class(logger)(experiment)
+    print("Using device = {}".format(device))
 
     end_to_end_training(
         epochs=epochs,

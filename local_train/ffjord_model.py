@@ -1,4 +1,5 @@
 import torch
+import copy
 from base_model import BaseConditionalGenerationOracle
 import sys
 sys.path.append('./ffjord/')
@@ -7,7 +8,7 @@ import ffjord.lib
 import ffjord.lib.utils as utils
 from ffjord.lib.visualize_flow import visualize_transform
 import ffjord.lib.layers.odefunc as odefunc
-from ffjord.train_misc import standard_normal_logprob
+from ffjord.train_misc import standard_normal_logprob, create_regularization_fns
 from torchdiffeq import odeint_adjoint
 from torchdiffeq import odeint
 from ffjord.custom_model import build_model_tabular, get_transforms, compute_loss
@@ -16,8 +17,41 @@ from tqdm import tqdm, trange
 from typing import Tuple
 import swats
 import warnings
+import numpy as np
 warnings.filterwarnings("ignore")
 
+
+class EarlyStopping:
+    """Early stops the training if validation loss doesn't improve after a given patience."""
+    def __init__(self, patience=7, verbose=False, improvement=1e-4):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                            Default: 7
+            verbose (bool): If True, prints a message for each validation loss improvement.
+                            Default: False
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self._improvement = improvement
+        self.val_loss_min = np.Inf
+
+    def __call__(self, val_loss, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+        elif score < self.best_score + self._improvement:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.counter = 0
 
 class FFJORDModel(BaseConditionalGenerationOracle):
     def __init__(self,
@@ -32,12 +66,12 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  batch_norm: bool = True,
                  solver='fixed_adams',
                  hidden_dims: Tuple[int] = (32, 32),
+
                  **kwargs):
         super(FFJORDModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         self._x_dim = x_dim
         self._y_dim =y_dim
         self._psi_dim = psi_dim
-
         self._model = build_model_tabular(dims=self._y_dim,
                                           condition_dim=self._psi_dim + self._x_dim,
                                           layer_type='concat_v2',
@@ -57,17 +91,31 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         return compute_loss(self._model, data=y.detach(), condition=condition.detach())
 
     def fit(self, y, condition):
+        self.train()
         trainable_parameters = list(self._model.parameters())
         optimizer = swats.SWATS(trainable_parameters, lr=self._lr, verbose=True)
         # optimizer = torch.optim.SGD(trainable_parameters, lr=self._lr)
         trange_cycle = trange(self._epochs, desc='Bar desc', leave=True)
+        best_params = self._model.state_dict()
+        best_loss = 1e6
+        early_stopping = EarlyStopping(patience=500, verbose=True)
         for epoch in trange_cycle:
             optimizer.zero_grad()
             loss = self.loss(y, condition)
+            if loss.item() < best_loss:
+                best_params = copy.deepcopy(self._model.state_dict())
+                best_loss = loss.item()
+
             trange_cycle.set_description("Bar desc (loss={}".format(loss.item()))
             trange_cycle.refresh()
+            early_stopping(loss.item(), self._model)
+            if early_stopping.early_stop:
+                break
             loss.backward()
             optimizer.step()
+        self._model.load_state_dict(best_params)
+        self.eval()
+        self._sample_fn, self._density_fn = get_transforms(self._model)
         return self
 
     def generate(self, condition):

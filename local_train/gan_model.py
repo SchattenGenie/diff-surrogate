@@ -1,9 +1,9 @@
 from base_model import BaseConditionalGenerationOracle
-from gan_nets import Generator, Discriminator, Attention
+from gan_nets import Generator, Discriminator, Attention, SimpleAttention
 from gan_nets import GANLosses
 import torch
 import torch.utils.data as pytorch_data_utils
-
+from tqdm import trange, tqdm
 
 class GANModel(BaseConditionalGenerationOracle):
     def __init__(self,
@@ -47,7 +47,7 @@ class GANModel(BaseConditionalGenerationOracle):
         self._ganloss = GANLosses(task=task)
 
         if attention_net_size:
-            self.attention_net = Attention(psi_dim=self._psi_dim, hidden_dim=attention_net_size)
+            self.attention_net = SimpleAttention(psi_dim=self._psi_dim, hidden_dim=attention_net_size)
         else:
             self.attention_net = None
         self._generator = Generator(noise_dim=self._noise_dim,
@@ -82,7 +82,7 @@ class GANModel(BaseConditionalGenerationOracle):
                                                  batch_size=self._batch_size,
                                                  shuffle=True)
 
-        for epoch in range(self._epochs):
+        for epoch in trange(self._epochs):
             dis_epoch_loss = []
             gen_epoch_loss = []
             for y_batch, cond_batch in dataloader:
@@ -151,13 +151,16 @@ class GANModel(BaseConditionalGenerationOracle):
                                              (1 - self.averaging_coeff) * weight.data
 
             if self.logger:
-                if self.attention_net:
-                    self.logger._experiment.log_metric("GAMMA", self.attention_net.gamma.item(), step=self.logger._epoch)
-                self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
-                self.logger.log_validation_metrics(self._y_model, y, condition, self,
-                                                   (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
-                                                    condition[:, :self._psi_dim].max(dim=0)[0].view(-1)))
-                self.logger.add_up_epoch()
+                try:
+                    if self.attention_net:
+                        self.logger._experiment.log_metric("GAMMA", self.attention_net.gamma.item(), step=self.logger._epoch)
+                    self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
+                    self.logger.log_validation_metrics(self._y_model, y, condition, self,
+                                                       (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
+                                                        condition[:, :self._psi_dim].max(dim=0)[0].view(-1)))
+                    self.logger.add_up_epoch()
+                except:
+                    pass
 
         if self.burn_in_period is not None:
             for av_weight, weight in zip(self.gen_average_weights, self._generator.parameters()):

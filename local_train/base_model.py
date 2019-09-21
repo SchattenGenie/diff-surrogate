@@ -202,7 +202,7 @@ class ShiftedOracle:
                         args = args[1:]
                     condition = condition.clone().detach()
                     kwargs['condition'] = condition
-                    kwargs['condition'] = kwargs['condition'][:, :len(self._shift)] - self._shift
+                    kwargs['condition'][:, :len(self._shift)] = kwargs['condition'][:, :len(self._shift)] - self._shift
                 result = orig_attr(*args, **kwargs)
                 if result is self._oracle:
                     return self

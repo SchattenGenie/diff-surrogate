@@ -39,7 +39,7 @@ class VoidModel(BaseConditionalGenerationOracle):
                  y_dim: int,
                  x_dim: int,
                  K: int = 1,
-                 num_repetitions: int = 5000,
+                 num_repetitions: int = 3000,
                  lr: float = 1.):
         super().__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         # self._psi = init_psi.clone()

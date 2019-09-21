@@ -11,7 +11,8 @@ from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, \
-                  RosenbrockModel, SHiPModel, ModelDegenerate, ModelInstrict
+                  RosenbrockModel, SHiPModel, ModelDegenerate, ModelInstrict, \
+                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *
@@ -101,7 +102,7 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
 @click.option('--work_space', type=str, prompt='Enter workspace name')
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
 @click.option('--n', type=int, default=3)
-@click.option('--num_repetitions', type=int, default=5000)
+@click.option('--num_repetitions', type=int, default=3000)
 @click.option('--h', type=float, default=0.2)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(

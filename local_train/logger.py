@@ -648,9 +648,9 @@ class GANLogger(object):
 
             for step in range(0, len(psi), per_psi_sample_size):
                 js.append(self.metric_calc.compute_JS(true_samples[step: step + per_psi_sample_size],
-                                                 gen_samples[step: step + per_psi_sample_size]).item())
+                                                 gen_samples[step: step + per_psi_sample_size]))
                 ks.append(self.metric_calc.compute_KSStat(true_samples.numpy()[step: step + per_psi_sample_size],
-                                                     gen_samples.numpy()[step: step + per_psi_sample_size]).item())
+                                                     gen_samples.numpy()[step: step + per_psi_sample_size]))
             self._experiment.log_metric("average_mu_JS", np.mean(js), step=self._epoch)
             self._experiment.log_metric("average_mu_KS", np.mean(ks), step=self._epoch)
 

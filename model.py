@@ -116,8 +116,6 @@ class YModel(BaseConditionalGenerationOracle):
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
         xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
 
-        # mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
-        #                                  randomSeed=np.random.randint(1e5)).T).float().to(self.device)
         mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
         mus = step * (mus * 2 - 1) + current_psi
         mus = torch.cat([mus, current_psi.view(1, -1)])
@@ -155,7 +153,7 @@ def generate_covariance(n=100, a=2):
     return np.array(C)
 
 
-class ModelDegenerate(YModel):
+class RosenbrockModelDegenerate(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
@@ -189,6 +187,78 @@ class ModelDegenerate(YModel):
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
 
 
+class ModelDegenerate(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        torch.manual_seed(1337)
+        # self._mixing_matrix = torch.tensor(scipy.linalg.hilbert(self._psi_dim)[:, :2]).float().to(self._device)
+        self._mixing_matrix = torch.randn(self._psi_dim, 500).float().to(self._device)
+        # self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
+        self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._psi_dim))).float().to(self._device)
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+
+        psi_z = dist.Normal(torch.zeros_like(psi), torch.ones_like(psi) / 100.).sample()
+        psi = torch.mm(psi_z, self._mixing_covariance) + psi
+        # psi = torch.mm(psi, self._mixing_matrix)
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
+
+
+class RosenbrockModelInstrict(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        torch.manual_seed(1337)
+        self._mask = (torch.range(0, self._psi_dim - 1) % 2 == 0).byte()
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+        psi = psi[:, self._mask]
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
+
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+
+        # mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
+        #                                  randomSeed=np.random.randint(1e5)).T).float().to(self.device)
+        mus_lhs = torch.tensor(lhs(self._mask.sum(), n_samples)).float().to(self.device)
+        mus = torch.full((n_samples, len(current_psi)), 0.5).float().to(self.device)
+        mus[:, self._mask] = mus_lhs
+        mus = step * (mus * 2 - 1) + current_psi
+        mus = torch.cat([mus, current_psi.view(1, -1)])
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        self.make_condition_sample({'mu': mus, 'x': xs})
+        data = self.condition_sample(1).detach().to(self.device)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
+
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+
 class ModelInstrict(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
@@ -211,10 +281,73 @@ class ModelInstrict(YModel):
         latent_psi = self.g(psi)
         return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
 
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+
+        # mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
+        #                                  randomSeed=np.random.randint(1e5)).T).float().to(self.device)
+        mus_lhs = torch.tensor(lhs(self._mask.sum(), n_samples)).float().to(self.device)
+        mus = torch.full((n_samples, len(current_psi)), 0.5).float().to(self.device)
+        mus[:, self._mask] = mus_lhs
+        mus = step * (mus * 2 - 1) + current_psi
+        mus = torch.cat([mus, current_psi.view(1, -1)])
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        self.make_condition_sample({'mu': mus, 'x': xs})
+        data = self.condition_sample(1).detach().to(self.device)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
+
     @staticmethod
     def g(x):
         return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+
+class RosenbrockModelDegenerateInstrict(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1)  # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        torch.manual_seed(1337)
+        self._mask = (torch.range(0, self._psi_dim - 1) % 5 == 0).byte()
+        self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._mask.sum()))).float().to(
+            self._device)
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+        psi = psi[:, self._mask]
+        # psi_z = dist.Normal(torch.zeros_like(psi), torch.ones_like(psi) / 100.).sample()
+        psi = torch.mm(psi, self._mixing_covariance)
+
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
+
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+
+        # mus = torch.tensor(lhsmdu.sample(len(current_psi), n_samples,
+        #                                  randomSeed=np.random.randint(1e5)).T).float().to(self.device)
+        mus_lhs = torch.tensor(lhs(self._mask.sum(), n_samples)).float().to(self.device)
+        mus = torch.full((n_samples, len(current_psi)), 0.5).float().to(self.device)
+        mus[:, self._mask] = mus_lhs
+        mus = step * (mus * 2 - 1) + current_psi
+        mus = torch.cat([mus, current_psi.view(1, -1)])
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        self.make_condition_sample({'mu': mus, 'x': xs})
+        data = self.condition_sample(1).detach().to(self.device)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
 
 
 class MultimodalSingularityModel(YModel):
@@ -560,11 +693,11 @@ class SHiPModel(YModel):
             for uuid in uuids:
                 answer = self._request_data(uuid, wait=False)
                 # TODO: rewrite
-                if r["container_status"] == 'exited':
+                if answer["container_status"] == 'exited':
                     uuids_processed.append(uuid)
                     res[uuid] = answer
                     res[uuid]['condition'] = uuids_to_condition[uuid]
-                elif r["container_status"] == 'failed':
+                elif answer["container_status"] == 'failed':
                     uuids_processed.append(uuid)
                     # TODO: ignore?
                     # raise ValueError("Generation has failed with error {}".format(r.get("message", None)))

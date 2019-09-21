@@ -45,6 +45,7 @@ class Net(nn.Module):
         y_gen = self.fc3(h3)
         return y_gen        
 
+
 # Idea is kind of taken from https://arxiv.org/pdf/1805.08318.pdf and applied to conditions
 class Attention(nn.Module):
     def __init__(self, psi_dim, hidden_dim):
@@ -65,6 +66,28 @@ class Attention(nn.Module):
         self_attention = self.v_net(torch.bmm(attention_map, self.h_net(params_psi).transpose(1, 2)).transpose(1, 2))
         psi_with_attention = (self.gamma * self_attention + params_psi)[:, 0, :]
         return torch.cat([psi_with_attention, params[:, self._psi_dim:]], dim=1)
+
+
+class SimpleAttention(nn.Module):
+    def __init__(self, psi_dim, hidden_dim):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self._psi_dim = psi_dim
+
+        self._attention_net = nn.Sequential(
+            nn.Linear(psi_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, psi_dim),
+            nn.Softmax(dim=1)
+        )
+        self.gamma = nn.Parameter(torch.Tensor([0.]), requires_grad=True)
+
+    def forward(self, params):
+        psi_with_attention = params[:, :self._psi_dim] * self._attention_net(params[:, :self._psi_dim])
+        return torch.cat([psi_with_attention, params[:, self._psi_dim:]], dim=1)
+
 
 class Generator(nn.Module):
     def __init__(self, noise_dim, out_dim, psi_dim, hidden_dim=100, x_dim=1, attention_net=None):
