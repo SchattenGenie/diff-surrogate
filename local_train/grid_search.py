@@ -14,15 +14,14 @@ def main(model, model_config_file, optimized_function, init_psi):
     psi_dim = len([float(x.strip()) for x in init_psi.split(',')])
     lrs = [1e-4, 1e-3, 1e-2, 1e-1]
     n_samples_search = [psi_dim // 2, psi_dim, 2 * psi_dim, 3 * psi_dim]
-    command = "python end_to_end.py --model {0} --project_name grid_search \
+    command = "python end_to_end.py --model {0} --project_name grid_search_{2} \
     --work_space schattengenie --model_config_file {1} --tags {0},{2},grid_search \
     --optimizer TorchOptimizer --optimized_function {2}  --init_psi {3} \
     --n_samples {4} --lr {5} --reuse_optimizer True"
     processes = []
     for lr in lrs:
         for n_samples in n_samples_search:
-            command_pre = shlex.split(
-                command.format(
+            command_pre = command.format(
                     model,  # 0
                     model_config_file,  # 1
                     optimized_function,  # 2
@@ -30,7 +29,8 @@ def main(model, model_config_file, optimized_function, init_psi):
                     n_samples,  # 4
                     lr,  # 5
                 )
-            )
+            print(command_pre)
+            command_pre = shlex.split(command_pre)
             print(command_pre)
             process = subprocess.Popen(command_pre,
                                        shell=False,
