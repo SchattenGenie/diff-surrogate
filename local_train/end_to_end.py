@@ -110,8 +110,10 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
+        x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
         exp_replay.add(y=x, condition=condition)
-        x, condition = exp_replay.extract(psi=current_psi, step=step_data_gen)
+        x = torch.cat([x, x_exp_replay], dim=0)
+        condition = torch.cat([condition, condition_exp_replay], dim=0)
         print(x.shape, condition.shape)
         model.train()
         if reuse_model:
