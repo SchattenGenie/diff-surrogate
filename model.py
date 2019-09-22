@@ -316,7 +316,7 @@ class RosenbrockModelDegenerateInstrict(YModel):
         self._psi_dim = len(psi_init)
         self._device = device
         torch.manual_seed(1337)
-        self._mask = (torch.range(0, self._psi_dim - 1) % 5 == 0).byte()
+        self._mask = (torch.range(0, self._psi_dim - 1) % 10 == 0).byte()
         self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._mask.sum()))).float().to(
             self._device)
         self.loss = loss
