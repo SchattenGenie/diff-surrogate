@@ -47,7 +47,7 @@ class GANModel(BaseConditionalGenerationOracle):
         self._ganloss = GANLosses(task=task)
 
         if attention_net_size:
-            self.attention_net = SimpleAttention(psi_dim=self._psi_dim, hidden_dim=attention_net_size)
+            self.attention_net = Attention(psi_dim=self._psi_dim, hidden_dim=attention_net_size)
         else:
             self.attention_net = None
         self._generator = Generator(noise_dim=self._noise_dim,
