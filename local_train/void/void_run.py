@@ -13,7 +13,7 @@ from typing import List, Union
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
-from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel
+from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, RosenbrockModelDegenerateInstrict
 from optimizer import BaseOptimizer
 from typing import Callable
 import time
@@ -49,6 +49,7 @@ def str_to_class(classname: str):
     :return: class object with the same name signature as classname
     """
     return getattr(sys.modules[__name__], classname)
+
 
 class VoidOptimizer(BaseOptimizer):
     def __init__(self,
