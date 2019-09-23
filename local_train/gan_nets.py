@@ -215,10 +215,9 @@ class GANLosses(object):
             alpha = alpha.unsqueeze(-1)
         # alpha = alpha.expand(inp_data.size())
 
-        interpolates = (alpha * inp_data + ((1 - alpha) * data_gen)).to(device)
+        interpolates = (alpha * inputs_batch + ((1 - alpha) * data_gen)).to(device)
         interpolates.requires_grad_(True)
-
-        disc_interpolates = discriminator(interpolates, inputs_batch)
+        disc_interpolates = discriminator(interpolates, inp_data)
         if self.TASK == "WASSERSTEIN":
             gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
                                             grad_outputs=torch.ones(disc_interpolates.size()).to(device),

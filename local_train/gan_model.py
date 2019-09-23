@@ -86,6 +86,7 @@ class GANModel(BaseConditionalGenerationOracle):
             dis_epoch_loss = []
             gen_epoch_loss = []
             for y_batch, cond_batch in dataloader:
+                # print(y_batch.shape, cond_batch.shape)
                 for _ in range(self._iters_discriminator):
                     y_gen = self.generate(condition=cond_batch)
                     if self._instance_noise_std:
