@@ -1,6 +1,6 @@
 model_config = {
     'task': "CRAMER", #"CRAMER", #"REVERSED_KL",  # 'WASSERSTEIN', # WASSERSTEIN, REVERSED_KL
-    'y_dim': 3,  # 2
+    'y_dim': 1,  # 2
     'x_dim': 1,  # 4
     'psi_dim': 12,  # obsolete
     'noise_dim': 300,
@@ -14,5 +14,5 @@ model_config = {
     'averaging_coeff': 0.,
     'dis_output_dim': 1,
     'grad_penalty': True,
-    'attention_net_size': None
+    'attention_net_size': None,
 }

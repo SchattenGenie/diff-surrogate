@@ -89,7 +89,7 @@ def end_to_end_training(epochs: int,
     :return:
     """
     gan_logger = GANLogger(experiment)
-
+    print(optimizer_config['x_step'])
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
     optimizer = optimizer_cls(oracle=model,
@@ -186,7 +186,7 @@ def end_to_end_training(epochs: int,
 @click.option('--epochs', type=int, default=500)
 @click.option('--n_samples', type=int, default=10)
 @click.option('--lr', type=float, default=1e-1)
-@click.option('--step_data_gen', type=float, default=1.)
+@click.option('--step_data_gen', type=float, default=0.1)
 @click.option('--n_samples_per_dim', type=int, default=3000)
 @click.option('--reuse_optimizer', type=bool, default=False)
 @click.option('--reuse_model', type=bool, default=False)

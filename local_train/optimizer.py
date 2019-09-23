@@ -108,7 +108,16 @@ class BaseOptimizer(ABC):
         :param init_time:
         :return:
         """
-        self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
+        if True:
+            self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
+        else:
+            # sphere cut
+            x_corrected = self._x.data - self._x_init.data
+            if x_corrected.norm() > self._x_step:
+                x_corrected = self._x_step * x_corrected / (x_corrected.norm())
+                x_corrected.data = x_corrected.data + self._x_init.data
+                self._x.data = x_corrected.data
+
         self._num_iter += 1
         if self._trace:
             self._update_history(init_time=init_time)

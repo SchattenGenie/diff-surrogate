@@ -39,6 +39,7 @@ def main(model, model_config_file, optimized_function, init_psi):
                                        stderr=subprocess.DEVNULL,
                                        preexec_fn=os.setsid)
             processes.append(process)
+            time.sleep(30.)
 
     for process in processes:
         print(process.pid)
