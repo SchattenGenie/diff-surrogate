@@ -16,7 +16,7 @@ import time
 SUCCESS = 'success'
 ITER_ESCEEDED = 'iterations_exceeded'
 COMP_ERROR = 'computational_error'
-
+SPHERE = False
 
 class BaseOptimizer(ABC):
     """
@@ -108,7 +108,7 @@ class BaseOptimizer(ABC):
         :param init_time:
         :return:
         """
-        if True:
+        if not SPHERE:
             self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
         else:
             # sphere cut
@@ -464,6 +464,7 @@ class GPOptimizer(BaseOptimizer):
 
         x_k = self._base_optimizer.ask()
         x_k = torch.tensor(x_k).float().to(self._oracle.device)
+        print(x_k, f_k)
         f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
 
         self._opt_result = self._base_optimizer.tell(
@@ -479,9 +480,6 @@ class GPOptimizer(BaseOptimizer):
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all()):
             return COMP_ERROR
-
-
-device = torch.device('cuda:3')
 
 
 class HybridMC(nn.Module):
