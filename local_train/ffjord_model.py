@@ -1,4 +1,6 @@
 import torch
+from torch import nn
+import torch.utils.data as dataset_utils
 import copy
 from base_model import BaseConditionalGenerationOracle
 import sys
@@ -39,7 +41,7 @@ class EarlyStopping:
         self._improvement = improvement
         self.val_loss_min = np.Inf
 
-    def __call__(self, val_loss, model):
+    def __call__(self, val_loss):
 
         score = -val_loss
 
@@ -103,7 +105,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
             if loss.item() < best_loss:
                 best_params = copy.deepcopy(self._model.state_dict())
                 best_loss = loss.item()
-            early_stopping(loss.item(), self._model)
+            early_stopping(loss.item())
             if early_stopping.early_stop:
                 break
             loss.backward()

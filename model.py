@@ -548,6 +548,7 @@ class FreqModulatedSoundWave(YModel):
         return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
 
+
 class LennardJonesPotentialProblem(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
@@ -752,6 +753,7 @@ class SHiPModel(YModel):
             y.append(data[uuid]['veto_points'])
             cond = data[uuid]['condition']
             num_entries = len(data[uuid]['muons_momentum'])
+            # TODO: fix in case of 0 entries
             psi.append(cond.repeat(num_entries, 1))
         xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
         y = torch.tensor(np.concatenate(y)).float().to(self.device)
