@@ -28,10 +28,10 @@ def get_freer_gpu():
     return np.argmax(memory_available)
 
 
-if torch.cuda.is_available():
-    device = torch.device('cuda:{}'.format(get_freer_gpu()))
-else:
-    device = torch.device('cpu')
+# if torch.cuda.is_available():
+#     device = torch.device('cuda:{}'.format(get_freer_gpu()))
+# else:
+device = torch.device('cpu')
 print("Using device = {}".format(device))
 
 
