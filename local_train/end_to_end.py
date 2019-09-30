@@ -11,7 +11,7 @@ from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianM
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, \
                   ModelDegenerate, ModelInstrict, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
-
+from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
@@ -64,6 +64,7 @@ def end_to_end_training(epochs: int,
                         reuse_model: bool = False,
                         shift_model: bool = False,
                         finetune_model: bool = False,
+                        use_experience_replay: bool =True,
                         add_box_constraints: bool = False,
                         experiment = None
                         ):
@@ -110,10 +111,11 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
-        x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
-        exp_replay.add(y=x, condition=condition)
-        x = torch.cat([x, x_exp_replay], dim=0)
-        condition = torch.cat([condition, condition_exp_replay], dim=0)
+        if use_experience_replay:
+            x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
+            exp_replay.add(y=x, condition=condition)
+            x = torch.cat([x, x_exp_replay], dim=0)
+            condition = torch.cat([condition, condition_exp_replay], dim=0)
         print(x.shape, condition.shape)
         model.train()
         if reuse_model:
@@ -183,7 +185,7 @@ def end_to_end_training(epochs: int,
 @click.option('--project_name', type=str, prompt='Enter project name')
 @click.option('--work_space', type=str, prompt='Enter workspace name')
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
-@click.option('--epochs', type=int, default=500)
+@click.option('--epochs', type=int, default=10000)
 @click.option('--n_samples', type=int, default=10)
 @click.option('--lr', type=float, default=1e-1)
 @click.option('--step_data_gen', type=float, default=0.1)
@@ -193,6 +195,7 @@ def end_to_end_training(epochs: int,
 @click.option('--shift_model', type=bool, default=False)
 @click.option('--finetune_model', type=bool, default=False)
 @click.option('--add_box_constraints', type=bool, default=False)
+@click.option('--use_experience_replay', type=bool, default=True)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,
@@ -212,6 +215,7 @@ def main(model,
          shift_model,
          lr,
          finetune_model,
+         use_experience_replay,
          add_box_constraints,
          init_psi
          ):
@@ -268,6 +272,7 @@ def main(model,
         shift_model=shift_model,
         finetune_model=finetune_model,
         add_box_constraints=add_box_constraints,
+        use_experience_replay=use_experience_replay,
         experiment=experiment
     )
 
