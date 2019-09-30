@@ -18,6 +18,7 @@ ITER_ESCEEDED = 'iterations_exceeded'
 COMP_ERROR = 'computational_error'
 SPHERE = False
 
+
 class BaseOptimizer(ABC):
     """
     Base class for optimization of some function with logging
@@ -437,7 +438,8 @@ class GPOptimizer(BaseOptimizer):
         self._base_optimizer = Optimizer(borders,
                                          base_estimator=base_estimator,
                                          acq_func=acq_func,
-                                         acq_optimizer=acq_optimizer)
+                                         acq_optimizer=acq_optimizer,
+                                         acq_optimizer_kwargs={"n_jobs": -1})
 
     def optimize(self):
         f_k = self._oracle.func(self._x, num_repetitions=self._num_repetitions).item()
@@ -464,8 +466,9 @@ class GPOptimizer(BaseOptimizer):
 
         x_k = self._base_optimizer.ask()
         x_k = torch.tensor(x_k).float().to(self._oracle.device)
-        print(x_k, f_k)
         f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
+
+        print(x_k, f_k)
 
         self._opt_result = self._base_optimizer.tell(
             self.bound_x(x_k.detach().cpu().numpy().tolist()),
