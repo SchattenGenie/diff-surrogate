@@ -25,7 +25,8 @@ class GANModel(BaseConditionalGenerationOracle):
                  burn_in_period=None,
                  averaging_coeff=None,
                  dis_output_dim=1,
-                 attention_net_size=None):
+                 attention_net_size=None,
+                 gp_reg_coeff=10):
         super(GANModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         if task in ['WASSERSTEIN', "CRAMER"]:
             output_logits = True
@@ -45,6 +46,7 @@ class GANModel(BaseConditionalGenerationOracle):
         self._iters_discriminator = iters_discriminator
         self._iters_generator = iters_generator
         self._ganloss = GANLosses(task=task)
+        self.lambda_reg = gp_reg_coeff
 
         if attention_net_size:
             self.attention_net = Attention(psi_dim=self._psi_dim, hidden_dim=attention_net_size)
@@ -95,6 +97,8 @@ class GANModel(BaseConditionalGenerationOracle):
 
                     if self._task == "CRAMER":
                         y_gen_prime = self.generate(condition=cond_batch)
+                        if self._instance_noise_std:
+                            y_gen_prime = self.instance_noise(y_gen_prime, self._instance_noise_std)
                         loss = self._ganloss.d_loss(self.loss(y_gen, cond_batch),
                                                     self.loss(y_batch, cond_batch),
                                                     self.loss(y_gen_prime, cond_batch))
@@ -104,7 +108,7 @@ class GANModel(BaseConditionalGenerationOracle):
                                                                         y_batch.data,
                                                                         cond_batch.data,
                                                                         data_gen_prime=y_gen_prime.data,
-                                                                        lambda_reg=10)
+                                                                        lambda_reg=self.lambda_reg)
                     else:
                         loss = self._ganloss.d_loss(self.loss(y_gen, cond_batch),
                                                     self.loss(y_batch, cond_batch))
@@ -152,16 +156,14 @@ class GANModel(BaseConditionalGenerationOracle):
                                              (1 - self.averaging_coeff) * weight.data
 
             if self.logger:
-                try:
-                    if self.attention_net:
-                        self.logger._experiment.log_metric("GAMMA", self.attention_net.gamma.item(), step=self.logger._epoch)
-                    self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
-                    self.logger.log_validation_metrics(self._y_model, y, condition, self,
-                                                       (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
-                                                        condition[:, :self._psi_dim].max(dim=0)[0].view(-1)))
-                    self.logger.add_up_epoch()
-                except:
-                    pass
+                if self.attention_net:
+                    self.logger._experiment.log_metric("GAMMA", self.attention_net.gamma.item(), step=self.logger._epoch)
+                self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
+                self.logger.log_validation_metrics(self._y_model, y, condition, self,
+                                                   (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
+                                                    condition[:, :self._psi_dim].max(dim=0)[0].view(-1)),
+                                                   batch_size=1000)
+                self.logger.add_up_epoch()
 
         if self.burn_in_period is not None:
             for av_weight, weight in zip(self.gen_average_weights, self._generator.parameters()):
