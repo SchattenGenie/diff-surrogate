@@ -477,7 +477,7 @@ class CometLogger(SimpleLogger):
         self._epoch += 1
 
 
-    def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20):
+    def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20, batch_size=None):
         _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
 
         # LTS does not support vectorized psis yet, so we use loop
@@ -489,7 +489,14 @@ class CometLogger(SimpleLogger):
             model_grad_value = torch.stack(model_grads_list).detach()
         else:
             # TODO: check gradient estimation
-            model_grad_value = oracle.grad(_current_psi, num_repetitions=num_repetitions)
+            if batch_size:
+                model_grad_value = []
+                for batch_index in range(0, len(_current_psi), batch_size):
+                    model_grad_value.append(oracle.grad(_current_psi[batch_index: batch_index + batch_size],
+                                                   num_repetitions=num_repetitions))
+                model_grad_value = torch.cat(model_grad_value, dim=0)
+            else:
+                model_grad_value = oracle.grad(_current_psi, num_repetitions=num_repetitions)
 
         true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
         # print(model_grad_value.shape, true_grad_value.shape)
@@ -633,7 +640,8 @@ class GANLogger(object):
         self._experiment.log_metric("d_loss", np.mean(losses[0]), step=self._epoch)
         self._experiment.log_metric("g_loss", np.mean(losses[1]), step=self._epoch)
 
-    def log_validation_metrics(self, y_sampler, data, init_conditions, gan_model, psi_range, n_psi_samples=100, per_psi_sample_size=2000):
+    def log_validation_metrics(self, y_sampler, data, init_conditions, gan_model, psi_range, n_psi_samples=100,
+                               per_psi_sample_size=2000, batch_size=None):
         js = []
         ks = []
 
@@ -642,7 +650,12 @@ class GANLogger(object):
             x = y_sampler.sample_x(per_psi_sample_size * n_psi_samples).to(gan_model.device)
             psi = psi_grid.repeat(1, per_psi_sample_size).view(-1, len(psi_range[0]))
 
-            gen_samples = gan_model.generate(torch.cat([psi, x], dim=1).to(gan_model.device)).detach().cpu()
+            gen_samples = []
+            for batch_index in range(0, len(psi), batch_size):
+                gen_samples.append(gan_model.generate(torch.cat([psi[batch_index : batch_index + batch_size],
+                                                                 x[batch_index : batch_index + batch_size]],
+                                                                dim=1).to(gan_model.device)).detach().cpu())
+            gen_samples = torch.cat(gen_samples, dim=0)
             y_sampler.make_condition_sample({"mu": psi, "x": x})
             true_samples = y_sampler.condition_sample(1).cpu()
 
@@ -654,15 +667,24 @@ class GANLogger(object):
             self._experiment.log_metric("average_mu_JS", np.mean(js), step=self._epoch)
             self._experiment.log_metric("average_mu_KS", np.mean(ks), step=self._epoch)
 
-        train_data_js = self.metric_calc.compute_JS(data.cpu(), gan_model.generate(init_conditions).detach().cpu())
-        train_data_ks = self.metric_calc.compute_KSStat(data.cpu().numpy(),
-                                                   gan_model.generate(init_conditions).detach().cpu().numpy())
+
+        train_generated_data = []
+        for batch_index in range(0, len(init_conditions), batch_size):
+            train_generated_data.append(gan_model.generate(init_conditions[batch_index : batch_index + batch_size]).detach().cpu())
+        train_generated_data = torch.cat(train_generated_data, dim=0)
+        train_data_js = self.metric_calc.compute_JS(data.cpu(), train_generated_data)
+        train_data_ks = self.metric_calc.compute_KSStat(data.cpu().numpy(), train_generated_data)
 
         self._experiment.log_metric("train_data_JS", train_data_js, step=self._epoch)
         self._experiment.log_metric("train_data_KS", train_data_ks, step=self._epoch)
         for order in range(1, 4):
             moment_of_true = self.metric_calc.compute_moment(data.cpu(), order)
-            moment_of_generated = self.metric_calc.compute_moment(gan_model.generate(init_conditions).detach().cpu(),
+            train_generated_data = []
+            for batch_index in range(0, len(init_conditions), batch_size):
+                train_generated_data.append(
+                    gan_model.generate(init_conditions[batch_index: batch_index + batch_size]).detach().cpu())
+            train_generated_data = torch.cat(train_generated_data, dim=0)
+            moment_of_generated = self.metric_calc.compute_moment(train_generated_data,
                                                      order)
             metric_diff = moment_of_true - moment_of_generated
 
