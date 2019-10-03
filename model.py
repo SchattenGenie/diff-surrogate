@@ -114,11 +114,11 @@ class YModel(BaseConditionalGenerationOracle):
         return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
 
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
-        xs = self.sample_x(n_samples_per_dim * (n_samples))
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
 
         mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
         mus = step * (mus * 2 - 1) + current_psi
-        # mus = torch.cat([mus, current_psi.view(1, -1)])
+        mus = torch.cat([mus, current_psi.view(1, -1)])
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
         self.make_condition_sample({'mu': mus, 'x': xs})
         data = self.condition_sample(1).detach().to(self.device)
