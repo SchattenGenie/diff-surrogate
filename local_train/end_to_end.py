@@ -119,8 +119,8 @@ def end_to_end_training(epochs: int,
         if use_experience_replay:
             x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
             exp_replay.add(y=x, condition=condition)
-            x = torch.cat([x, x_exp_replay], dim=0)
-            condition = torch.cat([condition, condition_exp_replay], dim=0)
+            x = torch.cat([x.cpu(), x_exp_replay], dim=0)
+            condition = torch.cat([condition.cpu(), condition_exp_replay], dim=0)
 
         if REWEIGHT:
             reweighter = reweight.GBReweighter(n_estimators=50,
