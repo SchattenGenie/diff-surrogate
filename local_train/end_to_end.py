@@ -7,6 +7,7 @@ import torch
 import numpy as np
 sys.path.append('../')
 from typing import List, Union
+from pyDOE import lhs
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, \
                   ModelDegenerate, ModelInstrict, \
@@ -20,6 +21,10 @@ from logger import SimpleLogger, CometLogger, GANLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay
+REWEIGHT = False
+
+if REWEIGHT:
+    from hep_ml import reweight
 
 
 def get_freer_gpu():
@@ -116,6 +121,22 @@ def end_to_end_training(epochs: int,
             exp_replay.add(y=x, condition=condition)
             x = torch.cat([x, x_exp_replay], dim=0)
             condition = torch.cat([condition, condition_exp_replay], dim=0)
+
+        if REWEIGHT:
+            reweighter = reweight.GBReweighter(n_estimators=50,
+                                               learning_rate=0.1,
+                                               max_depth=3,
+                                               min_samples_leaf=50,
+                                               gb_args={'subsample': 0.4})
+            source = np.unique(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), axis=0)
+            target = lhs(model_config['psi_dim'], 10000 * model_config['psi_dim'])
+            reweighter.fit(source, target)
+            weights = reweighter.predict_weights(condition[:, :model_config['psi_dim']].detach().cpu().numpy())
+            weights = weights * len(weights) / weights.sum()
+            print(np.unique(weights))
+        else:
+            weights = None
+
         print(x.shape, condition.shape)
         model.train()
         if reuse_model:
@@ -124,14 +145,14 @@ def end_to_end_training(epochs: int,
                     model.set_shift(current_psi.clone().detach())
                 else:
                     model = ShiftedOracle(oracle=model, shift=current_psi.clone().detach())
-                model.fit(x, condition=condition)
+                model.fit(x, condition=condition, weights=weights)
             else:
-                model.fit(x, condition=condition)
+                model.fit(x, condition=condition, weights=weights)
         else:
             # if not reusing model
             # then at each epoch re-initialize and re-fit
             model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
-            model.fit(x, condition=condition)
+            model.fit(x, condition=condition, weights=weights)
 
         model.eval()
 

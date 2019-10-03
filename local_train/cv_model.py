@@ -15,7 +15,6 @@ import click
 @click.option('--step_data_gen', type=float, default=0.1)
 @click.option('--cv', type=int, default=10)
 def main(model, model_config_file, n_samples, lr, step_data_gen, cv, optimized_function, init_psi):
-    psi_dim = len([float(x.strip()) for x in init_psi.split(',')])
     command = "python end_to_end.py --model {0} --project_name cv_{2} \
     --work_space schattengenie --model_config_file {1} --tags {0},{2},cv \
     --optimizer TorchOptimizer --optimized_function {2}  --init_psi {3} \
@@ -35,6 +34,7 @@ def main(model, model_config_file, n_samples, lr, step_data_gen, cv, optimized_f
             )
         print(command_pre)
         command_pre = shlex.split(command_pre)
+        continue
         print(command_pre)
         process = subprocess.Popen(command_pre,
                                    shell=False,

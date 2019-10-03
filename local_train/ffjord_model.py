@@ -55,6 +55,7 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
 
+
 class FFJORDModel(BaseConditionalGenerationOracle):
     def __init__(self,
                  y_model: BaseConditionalGenerationOracle,
@@ -89,10 +90,10 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._epochs = epochs
         self._lr = lr
 
-    def loss(self, y, condition):
-        return compute_loss(self._model, data=y.detach(), condition=condition.detach())
+    def loss(self, y, condition, weights=None):
+        return compute_loss(self._model, data=y.detach(), condition=condition.detach(), weights=weights)
 
-    def fit(self, y, condition):
+    def fit(self, y, condition, weights=None):
         self.train()
         trainable_parameters = list(self._model.parameters())
         optimizer = swats.SWATS(trainable_parameters, lr=self._lr, verbose=True)
@@ -101,7 +102,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         early_stopping = EarlyStopping(patience=200, verbose=True)
         for epoch in range(self._epochs):
             optimizer.zero_grad()
-            loss = self.loss(y, condition)
+            loss = self.loss(y, condition, weights=weights)
             if loss.item() < best_loss:
                 best_params = copy.deepcopy(self._model.state_dict())
                 best_loss = loss.item()

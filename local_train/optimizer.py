@@ -593,3 +593,170 @@ class LTSOptimizer(BaseOptimizer):
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
+
+"""
+class GPBoTorchOptimizer(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1.,
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        self._x.requires_grad_(True)
+        self._lr = lr
+        self._alpha_k = self._lr
+        self._opt_result = None
+        borders = []
+        x_step = self._x_step
+        if x_step is None:
+            x_step = self._lr
+        for xi in x.detach().cpu().numpy():
+            borders.append((xi - x_step, xi + x_step))
+        self._borders = torch.tensor(borders).float().to(self._x).t()
+
+        self._X_dataset = torch.zeros(0, len(self._x)).to(self._x)
+        self._y_dataset = torch.zeros(0).to(self._x)
+
+        self._X_dataset = torch.cat(
+            [self._X_dataset, self._x.detach().view(-1, len(self._x))],
+            dim=0
+        )
+        self._y_dataset = torch.cat(
+            [self._y_dataset, self._oracle.func(self._x, num_repetitions=self._num_repetitions).view(1)]
+        )
+        self._state_dict = None
+
+
+    def bound_x(self, x):
+        x_new = []
+        for xi, space in zip(x, self._base_optimizer.space):
+            if xi in space:
+                pass
+            else:
+                xi = np.clip(xi, space.low + 1e-3, space.high - 1e-3)
+            x_new.append(xi)
+        return x_new
+
+    def _step(self):
+        from gp_botorch import HeteroskedasticSingleTaskGP, ExpectedImprovement, bo_step
+        init_time = time.time()
+
+        print(self._X_dataset.shape, self._y_dataset.shape)
+        noise_var = 1e-1 * torch.ones_like(self._y_dataset)
+        GP = lambda X, y: HeteroskedasticSingleTaskGP(X, y, noise_var)
+        acquisition = lambda gp: ExpectedImprovement(gp, self._y_dataset.min(), maximize=False)
+        objective = lambda x: self._oracle.func(x, num_repetitions=self._num_repetitions)
+        X, y, gp = bo_step(self._X_dataset,
+                           self._y_dataset,
+                           objective=objective,
+                           bounds=self._borders,
+                           GP=GP,
+                           acquisition=acquisition,
+                           q=1,
+                           state_dict=self._state_dict)
+        self._state_dict = gp.state_dict()
+        self._X_dataset = X
+        self._y_dataset = y
+        f_k = self._y_dataset[-1]
+        x_k = self._X_dataset[-1]
+
+        print(x_k, f_k)
+
+        self._x = self._X_dataset[self._y_dataset.argmin()].clone().detach()
+        super()._post_step(init_time)
+
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all()):
+            return COMP_ERROR
+
+
+
+class GPBOOptimizer(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1.,
+                 base_estimator="gp",
+                 acq_func='gp_hedge',
+                 acq_optimizer="sampling",
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        from bayes_opt import BayesianOptimization, UtilityFunction
+
+        self._x.requires_grad_(True)
+        self._lr = lr
+        self._alpha_k = self._lr
+        self._opt_result = None
+        borders = {}
+        x_step = self._x_step
+        if x_step is None:
+            x_step = self._lr
+        for i, xi in enumerate(x.detach().cpu().numpy()):
+            borders["{}".format(i)] = (xi - x_step, xi + x_step)
+        self._optimizer = BayesianOptimization(
+            f=None,
+            pbounds=borders,
+            verbose=2,
+            random_state=1,
+        )
+        self._utility = UtilityFunction(kind="ei", kappa=2.5, xi=0.0)
+
+    def x_to_dict(self, x):
+        d = {}
+        for i, xi in enumerate(x.detach().cpu().numpy()):
+            d["{}".format(i)] = xi
+        return d
+
+    def dict_to_x(self, d):
+        keys = sorted(d.keys())
+        x = []
+        for k in keys:
+            x.append(d[k])
+        return torch.tensor(x).float()
+
+    def optimize(self):
+        f_k = self._oracle.func(self._x, num_repetitions=self._num_repetitions).item()
+        # self._optimizer.register(
+        #     params=self.x_to_dict(self._x),
+        #     target=f_k,
+        # )
+
+        x, status, history = super().optimize()
+        self._x = self.dict_to_x(self._optimizer.max["params"]).float().to(self._oracle.device)
+        return self._x.detach().clone(), status, history
+
+    def bound_x(self, x):
+        x_new = []
+        for xi, space in zip(x, self._base_optimizer.space):
+            if xi in space:
+                pass
+            else:
+                xi = np.clip(xi, space.low + 1e-3, space.high - 1e-3)
+            x_new.append(xi)
+        return x_new
+
+    def _step(self):
+        init_time = time.time()
+
+        x_k = self._optimizer.suggest(self._utility)
+        x_k = self.dict_to_x(x_k).float().to(self._oracle.device)
+        f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
+
+        print(x_k, f_k)
+
+        self._optimizer.register(
+            params=self.x_to_dict(x_k),
+            target=-f_k.item(),
+        )
+
+        self._x = self.dict_to_x(self._optimizer.max["params"]).float().to(self._oracle.device)
+        # torch.tensor(self._opt_result['x']).float().to(self._oracle.device) # x_k.detach().clone()
+        print(self._optimizer.max)
+        super()._post_step(init_time)
+        # grad_norm = torch.norm(d_k).item()
+        # if grad_norm < self._tolerance:
+        #     return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all()):
+            return COMP_ERROR
+"""
