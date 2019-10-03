@@ -180,7 +180,7 @@ class GANLosses(object):
     def __init__(self, task):
         self.TASK = task
 
-    def g_loss(self, discrim_output, discrim_output_prime=None, discrim_output_real=None):
+    def g_loss(self, discrim_output, discrim_output_gen_prime=None, discrim_output_real=None):
         eps = 1e-10
         if self.TASK == 'KL':
             loss = torch.log(1 - discrim_output + eps).mean()
@@ -190,12 +190,12 @@ class GANLosses(object):
             loss = - discrim_output.mean()
         elif self.TASK == "CRAMER":
             # loss = (torch.norm(discrim_output_real - discrim_output, dim=1) + \
-            #        torch.norm(discrim_output_real - discrim_output_prime, dim=1) - \
-            #        torch.norm(discrim_output - discrim_output_prime, dim=1)).mean()
-            loss = (torch.norm(discrim_output_real - discrim_output_gen_prime, dim=1) -
+            #        torch.norm(discrim_output_real - discrim_output_gen_prime, dim=1) - \
+            #        torch.norm(discrim_output - discrim_output_gen_prime, dim=1)).mean()
+            loss =   (torch.norm(discrim_output_real - discrim_output_gen_prime, dim=1) -
                       torch.norm(discrim_output_real, dim=1) -
-                      torch.norm(discrim_output_gen - discrim_output_gen_prime, dim=1) +
-                      torch.norm(discrim_output_gen)).mean()
+                      torch.norm(discrim_output - discrim_output_gen_prime, dim=1) +
+                      torch.norm(discrim_output, dim=1)).mean()
         return loss
 
     def d_loss(self, discrim_output_gen, discrim_output_real, discrim_output_gen_prime=None):
@@ -208,7 +208,7 @@ class GANLosses(object):
             loss = - (torch.norm(discrim_output_real - discrim_output_gen_prime, dim=1) -
                       torch.norm(discrim_output_real, dim=1) -
                       torch.norm(discrim_output_gen - discrim_output_gen_prime, dim=1) +
-                      torch.norm(discrim_output_gen)).mean()
+                      torch.norm(discrim_output_gen, dim=1)).mean()
         return loss
 
     def calc_gradient_penalty(self, discriminator, data_gen, inputs_batch, inp_data, lambda_reg=.1, data_gen_prime=None):
@@ -217,13 +217,9 @@ class GANLosses(object):
         dims_to_add = len(inp_data.size()) - 2
         for i in range(dims_to_add):
             alpha = alpha.unsqueeze(-1)
-        # alpha = alpha.expand(inp_data.size())
 
-        # add random noise instead to interpolates std 1
         interpolates = (alpha * inputs_batch + ((1 - alpha) * data_gen)).to(device)
-        #interpolates += torch.randn_like(interpolates) / 10
         interpolates.requires_grad_(True)
-        # Add random noise to condition
         disc_interpolates = discriminator(interpolates, inp_data)
         if self.TASK == "WASSERSTEIN":
             gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
@@ -235,8 +231,9 @@ class GANLosses(object):
             gradients = torch.autograd.grad(outputs=f_val, inputs=interpolates,
                                             grad_outputs=torch.ones(f_val.size()).to(device),
                                             create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-        gradient_penalty = (torch.max(gradients.norm(2, dim=1) - 1, 0) ** 2).mean() * lambda_reg
+        grad_norm_diff = gradients.norm(2, dim=1) - 1
+        grad_norm_diff[grad_norm_diff < 0] = 0
+        gradient_penalty = (grad_norm_diff ** 2).mean() * lambda_reg
         return gradient_penalty
 
     def calc_zero_centered_GP(self, discriminator, data_gen, inputs_batch, inp_data, gamma_reg=.1):

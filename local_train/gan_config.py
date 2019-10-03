@@ -1,12 +1,12 @@
 model_config = {
-    'task': "CRAMER", #"CRAMER", #"REVERSED_KL",  # 'WASSERSTEIN', # WASSERSTEIN, REVERSED_KL
+    'task': "CRAMER", #"CRAMER", #"CRAMER", #"REVERSED_KL",  # 'WASSERSTEIN', # WASSERSTEIN, REVERSED_KL
     'y_dim': 1,  # 2
-    'x_dim': 1,  # 4
-    'psi_dim': 100,  # obsolete
-    'noise_dim': 500,
+    'x_dim': 2,  # 4
+    'psi_dim': 10,  # obsolete
+    'noise_dim': 50,
     'lr': 1e-4 * 4,
     'batch_size': 256,
-    'epochs': 60,
+    'epochs': 50,
     'iters_discriminator': 1,
     'iters_generator': 1,
     'instance_noise_std': None,
@@ -15,4 +15,5 @@ model_config = {
     'dis_output_dim': 256,
     'grad_penalty': True,
     'attention_net_size': None,
+    'gp_reg_coeff': 10
 }
