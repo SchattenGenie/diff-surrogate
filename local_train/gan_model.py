@@ -26,7 +26,7 @@ class GANModel(BaseConditionalGenerationOracle):
                  averaging_coeff=None,
                  dis_output_dim=1,
                  attention_net_size=None,
-                 gp_reg_coeff=10):
+                 gp_reg_coeff=None):
         super(GANModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         if task in ['WASSERSTEIN', "CRAMER"]:
             output_logits = True
@@ -116,7 +116,8 @@ class GANModel(BaseConditionalGenerationOracle):
                             loss += self._ganloss.calc_gradient_penalty(self._discriminator,
                                                                         y_gen.data,
                                                                         y_batch.data,
-                                                                        cond_batch.data)
+                                                                        cond_batch.data,
+                                                                        lambda_reg=self.lambda_reg)
 
                     if self._zero_centered_grad_penalty:
                         loss -= self._ganloss.calc_zero_centered_GP(self._discriminator,
