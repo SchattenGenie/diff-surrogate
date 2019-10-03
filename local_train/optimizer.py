@@ -594,7 +594,7 @@ class LTSOptimizer(BaseOptimizer):
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
 
-
+"""
 class GPBoTorchOptimizer(BaseOptimizer):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,
@@ -626,17 +626,6 @@ class GPBoTorchOptimizer(BaseOptimizer):
         )
         self._state_dict = None
 
-    """
-    def optimize(self):
-        f_k = self._oracle.func(self._x, num_repetitions=self._num_repetitions).item()
-        self._base_optimizer.tell(
-            self.bound_x(self._x.detach().cpu().numpy().tolist()),
-            f_k
-        )
-        x, status, history = super().optimize()
-        self._x = torch.tensor(self._opt_result.x).float().to(self._oracle.device)
-        return self._x.detach().clone(), status, history
-    """
 
     def bound_x(self, x):
         x_new = []
@@ -770,3 +759,4 @@ class GPBOOptimizer(BaseOptimizer):
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all()):
             return COMP_ERROR
+"""

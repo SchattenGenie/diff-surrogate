@@ -21,7 +21,7 @@ from logger import SimpleLogger, CometLogger, GANLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay
-REWEIGHT = True
+REWEIGHT = False
 
 if REWEIGHT:
     from hep_ml import reweight
@@ -121,6 +121,7 @@ def end_to_end_training(epochs: int,
             exp_replay.add(y=x, condition=condition)
             x = torch.cat([x, x_exp_replay], dim=0)
             condition = torch.cat([condition, condition_exp_replay], dim=0)
+
         if REWEIGHT:
             reweighter = reweight.GBReweighter(n_estimators=50,
                                                learning_rate=0.1,
@@ -133,6 +134,8 @@ def end_to_end_training(epochs: int,
             weights = reweighter.predict_weights(condition[:, :model_config['psi_dim']].detach().cpu().numpy())
             weights = weights * len(weights) / weights.sum()
             print(np.unique(weights))
+        else:
+            weights = None
 
         print(x.shape, condition.shape)
         model.train()

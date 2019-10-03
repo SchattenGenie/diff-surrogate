@@ -73,7 +73,7 @@ class GANModel(BaseConditionalGenerationOracle):
     def loss(self, y, condition):
         return self._discriminator(y, condition)
 
-    def fit(self, y, condition):
+    def fit(self, y, condition, weights=None):
         g_optimizer = torch.optim.Adam(self._generator.parameters(), lr=self._lr, betas=(0.5, 0.999))
         d_optimizer = torch.optim.Adam(self._discriminator.parameters(), lr=self._lr, betas=(0.5, 0.999))
 

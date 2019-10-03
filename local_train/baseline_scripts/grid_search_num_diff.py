@@ -10,7 +10,7 @@ import click
 @click.option('--optimized_function', type=str, default='YModel')
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(optimized_function, init_psi):
-    ns = [3, 5, 7, 9, 11]
+    ns = [3, 5, 7, 9]
     hs = np.logspace(-3, 0, 19)
     command = "python baseline.py --project_name grid_search_num_diff_{0} \
     --work_space schattengenie --tags n_{2},h_{3},grid_search  \
@@ -35,7 +35,7 @@ def main(optimized_function, init_psi):
                                        stderr=subprocess.DEVNULL,
                                        preexec_fn=os.setsid)
             processes.append(process)
-            #  time.sleep(30.)
+            time.sleep(5.)
 
     for process in processes:
         print(process.pid)
