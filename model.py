@@ -116,7 +116,10 @@ class YModel(BaseConditionalGenerationOracle):
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
         xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
 
-        mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
+        if n_samples == 0:
+            mus = torch.zeros(0, len(current_psi)).float().to(self.device)
+        else:
+            mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
         mus = step * (mus * 2 - 1) + current_psi
         mus = torch.cat([mus, current_psi.view(1, -1)])
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
@@ -171,6 +174,7 @@ class RosenbrockModelDegenerate(YModel):
         self._mixing_matrix = torch.randn(self._psi_dim, 500).float().to(self._device)
         # self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
         self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._psi_dim))).float().to(self._device)
+        torch.seed()
         self.loss = loss
 
     def _generate_dist(self, psi, x):
@@ -205,6 +209,7 @@ class ModelDegenerate(YModel):
         self._mixing_matrix = torch.randn(self._psi_dim, 500).float().to(self._device)
         # self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
         self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._psi_dim))).float().to(self._device)
+        torch.seed()
         self.loss = loss
 
     def _generate_dist(self, psi, x):
@@ -231,6 +236,7 @@ class RosenbrockModelInstrict(YModel):
         self._device = device
         torch.manual_seed(1337)
         self._mask = (torch.range(0, self._psi_dim - 1) % 2 == 0).byte()
+        torch.seed()
         self.loss = loss
 
     def _generate_dist(self, psi, x):
@@ -259,6 +265,7 @@ class ModelInstrict(YModel):
         self._device = device
         torch.manual_seed(1337)
         self._mask = (torch.range(0, self._psi_dim - 1) % 2 == 0).byte()
+        torch.seed()
         self.loss = loss
 
     def _generate_dist(self, psi, x):
@@ -289,6 +296,7 @@ class RosenbrockModelDegenerateInstrict(YModel):
         self._mask = (torch.range(0, self._psi_dim - 1) % 10 == 0).byte()
         self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._mask.sum()))).float().to(
             self._device)
+        torch.seed()
         self.loss = loss
 
     def _generate_dist(self, psi, x):
