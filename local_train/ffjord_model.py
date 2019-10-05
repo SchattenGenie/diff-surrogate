@@ -65,7 +65,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  num_blocks: int = 1,
                  lr: float = 1e-3,
                  epochs: int = 10,
-                 bn_lag: float = 3,
+                 bn_lag: float = 1e-3,
                  batch_norm: bool = True,
                  solver='fixed_adams',
                  hidden_dims: Tuple[int] = (32, 32),
