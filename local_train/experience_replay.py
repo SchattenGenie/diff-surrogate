@@ -22,6 +22,6 @@ class ExperienceReplay:
             mask = ((self._condition[:, :self._psi_dim] - psi).pow(2).sum(dim=1).sqrt() < step)  # sphere
         else:
             mask = ((self._condition[:, :self._psi_dim] - psi).abs() < step).all(dim=1)
-        y = (self._y[mask])  #  .to(self._device)
-        condition = (self._condition[mask])  # .to(self._device)
+        y = (self._y[mask]).to(self._device)
+        condition = (self._condition[mask]).to(self._device)
         return y, condition
