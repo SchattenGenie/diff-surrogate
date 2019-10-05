@@ -65,7 +65,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  num_blocks: int = 1,
                  lr: float = 1e-3,
                  epochs: int = 10,
-                 bn_lag: float = 1e-3,
+                 bn_lag: float = 3,
                  batch_norm: bool = True,
                  solver='fixed_adams',
                  hidden_dims: Tuple[int] = (32, 32),
@@ -101,6 +101,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         best_params = self._model.state_dict()
         best_loss = 1e6
         early_stopping = EarlyStopping(patience=200, verbose=True)
+        """
         dataset = dataset_utils.TensorDataset(condition, y)
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=262144, shuffle=True, pin_memory=True)
         for epoch in range(self._epochs):
@@ -119,7 +120,18 @@ class FFJORDModel(BaseConditionalGenerationOracle):
             early_stopping(loss_sum)
             if early_stopping.early_stop:
                 break
-
+        """
+        for epoch in range(self._epochs):
+            optimizer.zero_grad()
+            loss = self.loss(y, condition, weights=weights)
+            if loss.item() < best_loss:
+                best_params = copy.deepcopy(self._model.state_dict())
+                best_loss = loss.item()
+            early_stopping(loss.item())
+            if early_stopping.early_stop:
+                break
+            loss.backward()
+            optimizer.step()
         self._model.load_state_dict(best_params)
         self.eval()
         self._sample_fn, self._density_fn = get_transforms(self._model)

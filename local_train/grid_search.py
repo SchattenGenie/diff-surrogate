@@ -35,6 +35,7 @@ def main(model, model_config_file, optimized_function, init_psi):
                 )
 
             print(command_pre)
+            continue
             command_pre = shlex.split(command_pre)
             print(command_pre)
             process = subprocess.Popen(command_pre,
