@@ -123,7 +123,8 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         """
         for epoch in range(self._epochs):
             optimizer.zero_grad()
-            loss = self.loss(y, condition, weights=weights)
+            loss = self.loss(y + torch.randn_like(y) * y.std(dim=0) / 100, condition, weights=weights)
+            print(loss)
             if loss.item() < best_loss:
                 best_params = copy.deepcopy(self._model.state_dict())
                 best_loss = loss.item()
