@@ -22,7 +22,8 @@ from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay
 
-from RegressionNN.regression_model import RegressionModel
+from base_model import average_block_wise
+from RegressionNN.regression_model import RegressionModel, RegressionRiskModel
 
 def get_freer_gpu():
     """
@@ -114,6 +115,9 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
+        if model_config["predict_risk"]:
+            condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
+            x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
         if use_experience_replay:
             x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
             exp_replay.add(y=x, condition=condition)

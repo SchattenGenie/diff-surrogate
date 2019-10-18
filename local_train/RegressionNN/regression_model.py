@@ -22,7 +22,7 @@ class RegressionModel(BaseConditionalGenerationOracle):
 
         self._predict_risk = predict_risk
         self._output_dim = 1 if self._predict_risk else y_dim
-        self._net = RegressionNet(self._output_dim, psi_dim, x_dim)
+        self._net = RegressionNet(self._output_dim, psi_dim=psi_dim, x_dim=x_dim)
         self.logger = logger
         self._losses = RegressionLosses()
         self.attention_net = None
@@ -38,7 +38,7 @@ class RegressionModel(BaseConditionalGenerationOracle):
         for epoch in trange(self._epochs):
             loss_history = []
             for y_batch, cond_batch in dataloader:
-                y_gen = self.generate(cond_batch)
+                y_gen = self._net(cond_batch)
 
                 loss = self._losses.loss(y_batch, y_gen)
                 optimizer.zero_grad()
@@ -68,3 +68,17 @@ class RegressionModel(BaseConditionalGenerationOracle):
 
     def loss(self):
         return None
+
+class RegressionRiskModel(RegressionModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def func(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
+        """
+        Computes the value of function with specified condition.
+        :param condition: torch.Tensor
+            condition of models, i.e. psi
+        :param num_repetitions:
+        :return:
+        """
+        return self._net(condition)
