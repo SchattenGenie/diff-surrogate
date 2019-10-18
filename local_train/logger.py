@@ -689,3 +689,11 @@ class GANLogger(object):
             metric_diff = moment_of_true - moment_of_generated
 
             self._experiment.log_metric("train_data_diff_order_" + str(order), metric_diff, step=self._epoch)
+
+
+class RegressionLogger(GANLogger):
+    def __init__(self, experiment):
+        super().__init__(experiment)
+
+    def log_losses(self, losses):
+        self._experiment.log_metric("mse_loss", np.mean(losses[0]), step=self._epoch)
