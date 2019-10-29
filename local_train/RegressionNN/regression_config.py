@@ -1,5 +1,5 @@
 model_config = {
-    'y_dim': 1,  # 2
+    'y_dim': 3,  # 2
     'x_dim': 1,  # 4
     'psi_dim': 10,  # obsolete
     'lr': 1e-3,

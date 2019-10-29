@@ -441,15 +441,14 @@ class LearningToSimGaussianModel(YModel):
     def loss(self, y):
         self.net.zero_grad()
         output = self.net(y[:, :-1])
-        # mask = y[:, -1] > 0.5
-        # regulariser = y[:, -1][mask].mean()
-        # lam = 1
-        y = y[:, -1].reshape(-1, 1)
-        c = 2.
+        mask = y[:, -1] > 0.5
+        regulariser = y[:, -1][mask].mean()
+        lam = 1
+        # y = y[:, -1].reshape(-1, 1)
+        # c = 2.
         return torch.nn.functional.binary_cross_entropy_with_logits(output,
-                                                                    (torch.tanh((y - 0.5) * c) / 2 + 0.5),
-                                                                    # torch.clamp(y[:, -1].reshape(-1, 1), 0., 1.),
-                                                                    reduction='none')  # + lam * (regulariser - 1) ** 2
+                                                                    torch.clamp(y[:, -1].reshape(-1,1), 0., 1.),
+                                                                    reduction='none') + lam * (regulariser - 1) ** 2
 
     def sample_toy_data_pt(self, n_classes=2, n_components=3, psi=None):
         means_index = [0, 1, 4, 5, 8, 9]
