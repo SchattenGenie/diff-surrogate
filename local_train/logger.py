@@ -17,6 +17,8 @@ from pyDOE import lhs
 import time
 import pickle
 
+from model import SHiPModel
+
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
 
@@ -474,8 +476,22 @@ class CometLogger(SimpleLogger):
                 pickle.dump(self._optimizer_logs['x'], f)
             self._experiment.log_asset("psi_list.pkl", overwrite=True, copy_to_tmp=False)
 
-        self._epoch += 1
+        if isinstance(y_sampler, SHiPModel):
+            if upload_pickle:
+                if self._epoch != 0:
+                    with open("y_hits_distr.pkl", 'rb') as f:
+                        prev_array = pickle.load(f)
 
+                hits_distr = y_sampler.generate(current_psi, num_repetitions=5000).cpu().numpy()
+                if prev_array:
+                    hist_distr = np.hstack([prev_array, hist_distr])
+
+                with open("y_hits_distr.pkl", 'wb') as f:
+                    pickle.dump(hits_distr, f)
+
+                self._experiment.log_asset("y_hits_distr.pkl", overwrite=True, copy_to_tmp=False)
+
+        self._epoch += 1
 
     def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20, batch_size=None):
         _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
