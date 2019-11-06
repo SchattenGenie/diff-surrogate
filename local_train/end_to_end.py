@@ -6,8 +6,8 @@ import click
 import torch
 import numpy as np
 sys.path.append('../')
+sys.path.append('./RegressionNN')
 from typing import List, Union
-from pyDOE import lhs
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, \
                   ModelDegenerate, ModelInstrict, \
@@ -18,7 +18,7 @@ from gmm_model import GMMModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
-from logger import SimpleLogger, CometLogger, GANLogger
+from logger import SimpleLogger, CometLogger, GANLogger, RegressionLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
@@ -28,6 +28,8 @@ REWEIGHT = False
 if REWEIGHT:
     from hep_ml import reweight
 
+from base_model import average_block_wise
+from RegressionNN.regression_model import RegressionModel, RegressionRiskModel
 
 def get_freer_gpu():
     """
@@ -97,8 +99,9 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
-    gan_logger = GANLogger(experiment)
-    print(optimizer_config['x_step'])
+    #gan_logger = GANLogger(experiment)
+    gan_logger = RegressionLogger(experiment)
+    #print(optimizer_config['x_step'])
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
     optimizer = optimizer_cls(
@@ -141,27 +144,14 @@ def end_to_end_training(epochs: int,
                 step=step_data_gen,
                 current_psi=current_psi,
                 n_samples=n_samples)
-            if use_experience_replay:
+        if use_experience_replay:
                 x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
                 exp_replay.add(y=x, condition=condition)
                 x = torch.cat([x, x_exp_replay], dim=0)
                 condition = torch.cat([condition, condition_exp_replay], dim=0)
-
-        if REWEIGHT:
-            reweighter = reweight.GBReweighter(n_estimators=50,
-                                               learning_rate=0.1,
-                                               max_depth=3,
-                                               min_samples_leaf=50,
-                                               gb_args={'subsample': 0.4})
-            source = np.unique(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), axis=0)
-            target = lhs(model_config['psi_dim'], 10000 * model_config['psi_dim'])
-            reweighter.fit(source, target)
-            weights = reweighter.predict_weights(condition[:, :model_config['psi_dim']].detach().cpu().numpy())
-            weights = weights * len(weights) / weights.sum()
-            print(np.unique(weights))
-        else:
-            weights = None
-
+        if model_config["predict_risk"]:
+            condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
+            x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
         print(x.shape, condition.shape)
         print(
             condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),

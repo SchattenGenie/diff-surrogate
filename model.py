@@ -473,15 +473,14 @@ class LearningToSimGaussianModel(YModel):
     def loss(self, y):
         self.net.zero_grad()
         output = self.net(y[:, :-1])
-        # mask = y[:, -1] > 0.5
-        # regulariser = y[:, -1][mask].mean()
-        # lam = 1
-        y = y[:, -1].reshape(-1, 1)
-        c = 2.
+        mask = y[:, -1] > 0.5
+        regulariser = y[:, -1][mask].mean()
+        lam = 1
+        # y = y[:, -1].reshape(-1, 1)
+        # c = 2.
         return torch.nn.functional.binary_cross_entropy_with_logits(output,
-                                                                    (torch.tanh((y - 0.5) * c) / 2 + 0.5),
-                                                                    # torch.clamp(y[:, -1].reshape(-1, 1), 0., 1.),
-                                                                    reduction='none')  # + lam * (regulariser - 1) ** 2
+                                                                    torch.clamp(y[:, -1].reshape(-1,1), 0., 1.),
+                                                                    reduction='none') + lam * (regulariser - 1) ** 2
 
     def sample_toy_data_pt(self, n_classes=2, n_components=3, psi=None):
         means_index = [0, 1, 4, 5, 8, 9]
@@ -666,11 +665,26 @@ class SHiPModel(YModel):
         print(r.content, d)
         return r.content.decode()
 
-    def _loss(self, data):
+    def _loss(self, data, condition):
         data['muons_momentum'] = np.array(data['muons_momentum'])
         data['veto_points'] = np.array(data['veto_points'])
         y = torch.tensor(data['veto_points'][:, :2])
-        return torch.prod(torch.sigmoid(y - self._left_bound) - torch.sigmoid(y - self._right_bound), dim=1).mean()
+        hit_loss = torch.prod(torch.sigmoid(y - self._left_bound) - torch.sigmoid(y - self._right_bound), dim=1).mean()
+
+        x_begin, x_end, y_begin, y_end, z = torch.clamp(condition, 1e-5, 1e5).detach().cpu().numpy()
+
+        volume_of_magnet = 1 / 3. * z * (x_begin * y_begin +
+                                         x_end * y_end +
+                                         torch.sqrt(x_begin * x_end * y_begin * y_end))
+        length_reg = 1
+        mass_reg = 1
+        steel_rho = 8 # kg / m^3
+
+        normalising_constant_mass = 90
+        normalising_constant_length = 8
+        return hit_loss +\
+               length_reg * z / normalising_constant_length +\
+               mass_reg * volume_of_magnet * steel_rho / normalising_constant_mass
 
     def _generate(self, condition, num_repetitions):
         uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
@@ -711,7 +725,7 @@ class SHiPModel(YModel):
 
     def _func(self, condition, num_repetitions):
         res = self._generate(condition, num_repetitions=num_repetitions)
-        loss = self._loss(res)
+        loss = self._loss(res, condition)
         return loss
 
     def _func_multiple(self, condition, num_repetitions):
