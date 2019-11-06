@@ -1,6 +1,6 @@
 model_config = {
-    'y_dim': 3,
+    'y_dim': 1,
     'psi_dim': 2,
     'x_dim': 1,
-    'epochs': 2000
+    'epochs': 10000
 }

@@ -14,13 +14,15 @@ from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianM
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
+from gmm_model import GMMModel
 from gan_model import GANModel
 from linear_model import LinearModelOnPsi
 from optimizer import *
 from logger import SimpleLogger, CometLogger, GANLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
-from experience_replay import ExperienceReplay
+from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
+from adaptive_borders import AdaptiveBorders
 REWEIGHT = False
 
 if REWEIGHT:
@@ -71,7 +73,8 @@ def end_to_end_training(epochs: int,
                         finetune_model: bool = False,
                         use_experience_replay: bool =True,
                         add_box_constraints: bool = False,
-                        experiment = None
+                        experiment = None,
+                        use_adaptive_borders=True
                         ):
     """
 
@@ -98,29 +101,51 @@ def end_to_end_training(epochs: int,
     print(optimizer_config['x_step'])
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
-    optimizer = optimizer_cls(oracle=model,
-                              x=current_psi,
-                              **optimizer_config)
+    optimizer = optimizer_cls(
+        oracle=model,
+        x=current_psi,
+        **optimizer_config
+    )
     print(model_config)
     exp_replay = ExperienceReplay(
         psi_dim=model_config['psi_dim'],
         y_dim=model_config['y_dim'],
         x_dim=model_config['x_dim'],
-        device=device)
-
+        device=device
+    )
+    if use_adaptive_borders:
+        adaptive_border = AdaptiveBorders(psi_dim=model_config['psi_dim'], step=step_data_gen)
+        exp_replay = ExperienceReplayAdaptive(
+            psi_dim=model_config['psi_dim'],
+            y_dim=model_config['y_dim'],
+            x_dim=model_config['x_dim'],
+            device=device
+        )
     for epoch in range(epochs):
         # generate new data sample
         # condition
-        x, condition = y_sampler.generate_local_data_lhs(
-            n_samples_per_dim=n_samples_per_dim,
-            step=step_data_gen,
-            current_psi=current_psi,
-            n_samples=n_samples)
-        if use_experience_replay:
-            x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
-            exp_replay.add(y=x, condition=condition)
-            x = torch.cat([x, x_exp_replay], dim=0)
-            condition = torch.cat([condition, condition_exp_replay], dim=0)
+        if use_adaptive_borders:
+            x, condition, conditions_grid, r_grid = y_sampler.generate_local_data_lhs_normal(
+                n_samples_per_dim=n_samples_per_dim,
+                sigma=adaptive_border.sigma,
+                current_psi=current_psi,
+                n_samples=n_samples)
+            if use_experience_replay:
+                x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, sigma=adaptive_border.sigma)
+                exp_replay.add(y=x, condition=condition)
+                x = torch.cat([x, x_exp_replay], dim=0)
+                condition = torch.cat([condition, condition_exp_replay], dim=0)
+        else:
+            x, condition = y_sampler.generate_local_data_lhs(
+                n_samples_per_dim=n_samples_per_dim,
+                step=step_data_gen,
+                current_psi=current_psi,
+                n_samples=n_samples)
+            if use_experience_replay:
+                x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
+                exp_replay.add(y=x, condition=condition)
+                x = torch.cat([x, x_exp_replay], dim=0)
+                condition = torch.cat([condition, condition_exp_replay], dim=0)
 
         if REWEIGHT:
             reweighter = reweight.GBReweighter(n_estimators=50,
@@ -138,6 +163,11 @@ def end_to_end_training(epochs: int,
             weights = None
 
         print(x.shape, condition.shape)
+        print(
+            condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
+            np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
+        )
+
         model.train()
         if reuse_model:
             if shift_model:
@@ -156,6 +186,9 @@ def end_to_end_training(epochs: int,
 
         model.eval()
 
+        if use_adaptive_borders:
+            adaptive_border.step(model=model, conditions_grid=conditions_grid, r_grid=r_grid)
+
         if reuse_optimizer:
             optimizer.update(oracle=model,
                              x=current_psi)
@@ -171,7 +204,6 @@ def end_to_end_training(epochs: int,
 
         current_psi, status, history = optimizer.optimize()
 
-        print(current_psi, status)
         try:
             # logging optimization, i.e. statistics of psi
             logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
@@ -179,6 +211,8 @@ def end_to_end_training(epochs: int,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
             logger.log_optimizer(optimizer)
+            if use_adaptive_borders:
+                adaptive_border.log(experiment)
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):
@@ -217,6 +251,7 @@ def end_to_end_training(epochs: int,
 @click.option('--finetune_model', type=bool, default=False)
 @click.option('--add_box_constraints', type=bool, default=False)
 @click.option('--use_experience_replay', type=bool, default=True)
+@click.option('--use_adaptive_borders', type=bool, default=True)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,
@@ -238,6 +273,7 @@ def main(model,
          finetune_model,
          use_experience_replay,
          add_box_constraints,
+         use_adaptive_borders,
          init_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
@@ -294,7 +330,8 @@ def main(model,
         finetune_model=finetune_model,
         add_box_constraints=add_box_constraints,
         use_experience_replay=use_experience_replay,
-        experiment=experiment
+        experiment=experiment,
+        use_adaptive_borders=use_adaptive_borders
     )
 
 
