@@ -241,7 +241,7 @@ def end_to_end_training(epochs: int,
 @click.option('--finetune_model', type=bool, default=False)
 @click.option('--add_box_constraints', type=bool, default=False)
 @click.option('--use_experience_replay', type=bool, default=True)
-@click.option('--use_adaptive_borders', type=bool, default=True)
+@click.option('--use_adaptive_borders', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,

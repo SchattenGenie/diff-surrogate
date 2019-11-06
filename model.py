@@ -733,7 +733,7 @@ class SHiPModel(YModel):
         loss = []
         for uuid in uuids:
             d = data.get(uuid, None)
-            loss.append(self._loss(d))
+            loss.append(self._loss(d, condition))
         return loss
 
     def generate(self, condition, num_repetitions=100, **kwargs):
