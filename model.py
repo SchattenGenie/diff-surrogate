@@ -675,15 +675,15 @@ class SHiPModel(YModel):
 
         volume_of_magnet = 1 / 3. * z * (x_begin * y_begin +
                                          x_end * y_end +
-                                         torch.sqrt(x_begin * x_end * y_begin * y_end))
+                                         np.sqrt(x_begin * x_end * y_begin * y_end))
         length_reg = 1
         mass_reg = 1
-        steel_rho = 8 # kg / m^3
+        steel_rho = 8  # kg / m^3
 
         normalising_constant_mass = 90
         normalising_constant_length = 8
-        return hit_loss +\
-               length_reg * z / normalising_constant_length +\
+        return hit_loss + \
+               length_reg * z / normalising_constant_length + \
                mass_reg * volume_of_magnet * steel_rho / normalising_constant_mass
 
     def _generate(self, condition, num_repetitions):

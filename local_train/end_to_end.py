@@ -116,6 +116,7 @@ def end_to_end_training(epochs: int,
         x_dim=model_config['x_dim'],
         device=device
     )
+    weights = None
     if use_adaptive_borders:
         adaptive_border = AdaptiveBorders(psi_dim=model_config['psi_dim'], step=step_data_gen)
         exp_replay = ExperienceReplayAdaptive(
@@ -149,7 +150,8 @@ def end_to_end_training(epochs: int,
                 exp_replay.add(y=x, condition=condition)
                 x = torch.cat([x, x_exp_replay], dim=0)
                 condition = torch.cat([condition, condition_exp_replay], dim=0)
-        if model_config["predict_risk"]:
+        # breaking things
+        if model_config.get("predict_risk", False):
             condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
             x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
         print(x.shape, condition.shape)
