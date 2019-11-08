@@ -3,6 +3,8 @@ import pyro
 import numpy as np
 from pyro import distributions as dist
 from local_train.base_model import BaseConditionalGenerationOracle
+import torch.nn.functional as F
+from scipy.stats import norm
 from pyro import poutine
 import matplotlib.pyplot as plt
 import scipy
@@ -13,6 +15,21 @@ import tqdm
 import requests
 import json
 import time
+
+
+def average_block_wise(x, num_repetitions):
+    n = x.shape[0]
+    if len(x.shape) == 1:
+        return F.avg_pool1d(x.view(1, 1, n),
+                            kernel_size=num_repetitions,
+                            stride=num_repetitions).view(-1)
+    elif len(x.shape) == 2:
+        cols = x.shape[1]
+        return F.avg_pool1d(x.view(1, cols, n),
+                            kernel_size=num_repetitions,
+                            stride=num_repetitions).view(-1, cols)
+    else:
+        NotImplementedError("average_block_wise do not support >2D tensors")
 
 
 class YModel(BaseConditionalGenerationOracle):
@@ -126,6 +143,21 @@ class YModel(BaseConditionalGenerationOracle):
         self.make_condition_sample({'mu': mus, 'x': xs})
         data = self.condition_sample(1).detach().to(self.device)
         return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
+
+    def generate_local_data_lhs_normal(self, n_samples_per_dim, sigma, current_psi, n_samples=2):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+        mus = np.append(lhs(len(current_psi), n_samples), np.ones((1, len(current_psi))) / 2., axis=0)
+        for i in range(len(current_psi)):
+            mus[:, i] = norm(loc=current_psi[i].item(), scale=sigma[i].item()).ppf(
+                mus[:, i]
+            )
+        mus = torch.tensor(mus).float().to(self.device)
+        conditions_grid = mus.clone().detach()
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        self.make_condition_sample({'mu': mus, 'x': xs})
+        data = self.condition_sample(1).detach().to(self.device)
+        r_grid = average_block_wise(self.loss(data), n_samples_per_dim)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1), conditions_grid, r_grid
 
 
 class RosenbrockModel(YModel):
@@ -687,7 +719,7 @@ class SHiPModel(YModel):
         loss = []
         for uuid in uuids:
             d = data.get(uuid, None)
-            loss.append(self._loss(d))
+            loss.append(self._loss(d, condition))
         return loss
 
     def generate(self, condition, num_repetitions=100, **kwargs):
