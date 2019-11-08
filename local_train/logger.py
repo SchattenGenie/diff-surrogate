@@ -476,20 +476,21 @@ class CometLogger(SimpleLogger):
                 pickle.dump(self._optimizer_logs['x'], f)
             self._experiment.log_asset("psi_list.pkl", overwrite=True, copy_to_tmp=False)
 
-        if isinstance(y_sampler, SHiPModel):
-            if upload_pickle:
-                if self._epoch != 0:
-                    with open("y_hits_distr.pkl", 'rb') as f:
-                        prev_array = pickle.load(f)
-
-                hits_distr = y_sampler.generate(current_psi, num_repetitions=5000).cpu().numpy()
-                if prev_array:
-                    hist_distr = np.hstack([prev_array, hist_distr])
-
-                with open("y_hits_distr.pkl", 'wb') as f:
-                    pickle.dump(hits_distr, f)
-
-                self._experiment.log_asset("y_hits_distr.pkl", overwrite=True, copy_to_tmp=False)
+        # if isinstance(y_sampler, SHiPModel):
+        #     prev_array = None
+        #     if upload_pickle:
+        #         if self._epoch != 0:
+        #             with open("y_hits_distr.pkl", 'rb') as f:
+        #                 prev_array = pickle.load(f)
+        #
+        #         hits_distr = y_sampler.generate(current_psi, num_repetitions=5000).cpu().numpy()
+        #         if prev_array:
+        #             hits_distr = np.hstack([prev_array, hits_distr])
+        #
+        #         with open("y_hits_distr.pkl", 'wb') as f:
+        #             pickle.dump(hits_distr, f)
+        #
+        #         self._experiment.log_asset("y_hits_distr.pkl", overwrite=True, copy_to_tmp=False)
 
         self._epoch += 1
 

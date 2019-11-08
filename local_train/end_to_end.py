@@ -9,7 +9,7 @@ sys.path.append('../')
 sys.path.append('./RegressionNN')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, \
+                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
                   ModelDegenerate, ModelInstrict, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
@@ -93,8 +93,9 @@ def end_to_end_training(epochs: int,
     :return:
     """
     #gan_logger = GANLogger(experiment)
-    gan_logger = RegressionLogger(experiment)
-    #print(optimizer_config['x_step'])
+    # gan_logger = RegressionLogger(experiment)
+    gan_logger = None
+
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
     optimizer = optimizer_cls(oracle=model,
@@ -115,7 +116,7 @@ def end_to_end_training(epochs: int,
             step=step_data_gen,
             current_psi=current_psi,
             n_samples=n_samples)
-        if model_config["predict_risk"]:
+        if model_config.get("predict_risk", False):
             condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
             x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
         if use_experience_replay:
@@ -160,7 +161,7 @@ def end_to_end_training(epochs: int,
         print(current_psi, status)
         try:
             # logging optimization, i.e. statistics of psi
-            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
+            # logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)

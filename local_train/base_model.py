@@ -101,6 +101,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
             if len(condition.size()) == 1:
                 conditions = condition.repeat(num_repetitions, 1)
             else:
+                raise NotImplementedError
                 n = len(condition)
                 conditions = condition.repeat(1, num_repetitions).view(num_repetitions * n, -1)
             conditions = torch.cat([
@@ -108,7 +109,8 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
                 self._y_model.sample_x(len(conditions)).to(self.device)
             ], dim=1)
             y = self.generate(conditions)
-            loss = self._y_model.loss(y=y)
+            #loss = self._y_model.loss(y=y)
+            loss = self._y_model.loss(y=y, conditions=conditions)
             if len(condition.size()) == 1:
                 return loss.mean()
             else:
