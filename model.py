@@ -16,6 +16,32 @@ import requests
 import json
 import time
 
+def volume_of_frastrum(half_h, area_1, area_2):
+    return 1 / 3. * 2 * half_h * (area_1 + area_2 + torch.sqrt(area_1 * area_2))
+
+
+def calculate_section_volume_with_material(z, f_l, f_r, h_l, h_r, g_l, g_r):
+    """
+    Calculates volume of non-empty pieces of one section of magnet.
+    The parameter naming is the same as in Petr Gorbunov ship memo.
+    TODO: there is a small descripancy about 5% between this way of calculating
+    volume and results from FairShip. Find its cause later.
+    """
+    area_1 = 2 * (f_l + g_l + f_l) * 2 * (h_l + f_l)
+    area_2 = 2 * (f_r + g_r + f_r) * 2 * (h_r + f_r)
+    total_volume = volume_of_frastrum(z, area_1, area_2)
+    gap_volume = volume_of_frastrum(z, g_l * 2 * h_l, g_r * 2 * h_r)
+    return total_volume - 2 * gap_volume
+
+
+def calculate_weight(volume, density=7.87):
+    """
+    volume should be in cm^3
+    density in g / cm^3
+    return mass in kg
+    """
+    return volume * density / 1e3
+
 
 def average_block_wise(x, num_repetitions):
     n = x.shape[0]
@@ -771,7 +797,7 @@ class SHiPModel(YModel):
         else:
             condition = conditions[0, :self._psi_dim]
         hit_loss = torch.prod(torch.sigmoid(y - self._left_bound) - torch.sigmoid(y - self._right_bound),
-                              dim=1).mean()
+                              dim=1).mean(dim=1)
 
         x_begin, x_end, y_begin, y_end, z = torch.clamp(condition, 1e-5, 1e5).detach().cpu().numpy()
 
@@ -844,12 +870,18 @@ class FullSHiPModel(SHiPModel):
         return json.loads(r.content)
 
     def loss(self, y, conditions):
+        """
+        Loss function as in Oliver's code
+        :param y: 2D distribution of hits
+        :param conditions: full matrix of conditions(magenet and kinematic)
+        :return:
+        """
         MUON = 13
         left_margin = 2.6  # in m
         right_margin = 3  # in m
         y_margin = 5  # in m
         y = y / 100  # convert cm to m
-        print("loss kinematics example value: ", conditions[0, self._psi_dim:])
+        print("inside loss kinematics example value: {}".format(conditions[0, self._psi_dim:]))
         pid_mask = (conditions[:, -1] == MUON) &\
                    (torch.abs(y[:, 1]) < y_margin)
         x_plus = y[pid_mask, 0]
@@ -862,11 +894,13 @@ class FullSHiPModel(SHiPModel):
                           (- left_margin <= x_minus)
         x_minus = x_minus[acceptance_mask]
 
-        sum_term = torch.sqrt((5.6 - (x_plus + 3)) / 5.6).sum() +\
-                   torch.sqrt((5.6 + (x_minus - 3)) / 5.6).sum()
+        sum_term = torch.sum(torch.sqrt((5.6 - (x_plus + 3)) / 5.6), dim=0, keepdim=True) +\
+                   torch.sum(torch.sqrt((5.6 + (x_minus - 3)) / 5.6), dim=0, keepdim=True)
 
         W_star = torch.tensor(1915820.).to(self._device)
-        W = torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
+        W_ship = torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
+        W = self.calculate_weight(conditions[0, :self._psi_dim])
+        print("Analytic mass: {}, true mass {}".format(W, W_ship))
 
         return (1 + torch.exp(10. * (W - W_star) / W_star)) * (
                 1. + sum_term) + torch.nn.functional.relu(W - 3e6) * 1e8
@@ -883,6 +917,27 @@ class FullSHiPModel(SHiPModel):
         conditions = torch.cat([psi, xs], dim=1)
         loss = self.loss(y, conditions)
         return loss
+
+    def calculate_weight(self, magnet_params):
+        magnet_sections = 6
+        params_per_section = 6
+        total_mass = torch.tensor([0.]).to(self._device)
+        for i in range(magnet_sections):
+            volume = calculate_section_volume_with_material(magnet_params[i],
+                                                            *magnet_params[i * params_per_section + magnet_sections:
+                                                                           i * params_per_section +
+                                                                           magnet_sections + params_per_section])
+            total_mass += calculate_weight(volume)
+
+        magnet_7_volume = calculate_section_volume_with_material(10, magnet_params[-5], magnet_params[-5],
+                                               magnet_params[-3], magnet_params[-3],
+                                               magnet_params[-1], magnet_params[-1])
+        total_mass += calculate_weight(magnet_7_volume)
+
+        # I add mass of absorber (fixed) to make relu activation in loss term acting correctly
+        mass_of_absorber = 257401. #  kg
+        return total_mass + mass_of_absorber
+
 
 class BernoulliModel(YModel):
     def __init__(self, device,
