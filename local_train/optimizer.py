@@ -13,6 +13,10 @@ import scipy
 import matplotlib.pyplot as plt
 import torch
 import time
+import sys
+sys.path.append('../')
+from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
+
 SUCCESS = 'success'
 ITER_ESCEEDED = 'iterations_exceeded'
 COMP_ERROR = 'computational_error'
@@ -58,10 +62,15 @@ class BaseOptimizer(ABC):
             self._oracle.func(self._x,
                               num_repetitions=self._num_repetitions).detach().cpu().numpy()
         )
-        self._history['grad'].append(
-            self._oracle.grad(self._x,
-                              num_repetitions=self._num_repetitions).detach().cpu().numpy()
-        )
+
+        if not (isinstance(y_sampler, SimpleSHiPModel) or isinstance(y_sampler, SimpleSHiPModel) or isinstance(y_sampler, SimpleSHiPModel)):
+            self._history['grad'].append(
+                self._oracle.grad(self._x,
+                                  num_repetitions=self._num_repetitions).detach().cpu().numpy()
+            )
+        else:
+            self._history['grad'].append(np.zeros_like(self._x.detach().cpu().numpy()))
+            
         self._history['x'].append(
             self._x.detach().cpu().numpy()
         )
