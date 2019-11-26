@@ -9,7 +9,7 @@ sys.path.append('../')
 sys.path.append('./RegressionNN')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, \
+                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
                   ModelDegenerate, ModelInstrict, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
@@ -99,9 +99,10 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
-    #gan_logger = GANLogger(experiment)
-    gan_logger = RegressionLogger(experiment)
-    #print(optimizer_config['x_step'])
+    gan_logger = GANLogger(experiment)
+    # gan_logger = RegressionLogger(experiment)
+    # gan_logger = None
+
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
     optimizer = optimizer_cls(
@@ -198,7 +199,7 @@ def end_to_end_training(epochs: int,
 
         try:
             # logging optimization, i.e. statistics of psi
-            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
+            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
