@@ -572,7 +572,6 @@ class LTSOptimizer(BaseOptimizer):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  lr: float = 1e-1,
-                 torch_model: str = 'Adam',
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._lr = lr
@@ -594,6 +593,87 @@ class LTSOptimizer(BaseOptimizer):
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
 
+
+class CMAGES(BaseOptimizer):
+    def __init__(self,
+                 oracle: BaseConditionalGenerationOracle,
+                 x: torch.Tensor,
+                 lr: float = 1e-1,
+                 p: int = 10,
+                 beta: float = 2.,
+                 alpha: float = 0.5,
+                 k: int = 10,
+                 sigma2: float = (0.1)**2,
+                 torch_model: str = 'Adam',
+                 optim_params: dict = None,
+                 *args, **kwargs):
+        super().__init__(oracle, x, *args, **kwargs)
+        self._lr = lr
+        self._grads = []
+        self._p = p
+        self._k = k
+        self._beta = beta
+        self._alpha = alpha
+        self._sigma2 = sigma2
+        self._torch_model = torch_model
+        if not optim_params:
+            optim_params = dict()
+        self._optim_params = optim_params
+        self._base_optimizer = getattr(optim, self._torch_model)(
+            params=[self._x], lr=lr, **self._optim_params
+        )
+
+    def _step(self):
+        init_time = time.time()
+        x_k = self._x.clone().detach()
+        d_k = -self._oracle.grad(x_k).detach()
+        self._grads.append(d_k)
+        if len(self._grads) > k:
+            self._grads.pop(0)
+        U, *_ = torch.svd(torch.stack(self._grads, dim=1))
+
+        dim = len(self._x)
+        covariance = (self._alpha / dim) * torch.eye(dim) + (1 - self._alpha) / self._k * torch.mm(U, U.t())
+        es_grad = torch.zeros_like(self._x)
+        for p in range(P):
+            noise = dist.MultivariateNormal(loc=torch.zeros(dim), covariance_matrix=sigma2 * covariance).sample()
+            es_grad += noise * (
+                    y_model.func(self._x + noise, num_repetitions=self._num_repetitions) -
+                    y_model.func(self._x - noise, num_repetitions=self._num_repetitions)
+            )
+
+        d_k = beta / (2 * sigma2 * P) * es_grad
+
+        self._base_optimizer.zero_grad()
+        self._x.grad = d_k.detach().clone()
+        self._base_optimizer.step()
+
+        super()._post_step(init_time)
+
+        grad_norm = torch.norm(d_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
+
+
+
+    def _step(self):
+        init_time = time.time()
+
+        self._base_optimizer.zero_grad()
+        d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
+        self._x.grad = d_k.detach().clone()
+        self._base_optimizer.step()
+        print("PSI", self._x)
+        super()._post_step(init_time)
+        grad_norm = torch.norm(d_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(self._x).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
 """
 class GPBoTorchOptimizer(BaseOptimizer):
     def __init__(self,

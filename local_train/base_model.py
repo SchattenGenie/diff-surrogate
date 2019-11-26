@@ -108,7 +108,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
                 self._y_model.sample_x(len(conditions)).to(self.device)
             ], dim=1)
             y = self.generate(conditions)
-            loss = self._y_model.loss(y=y)
+            loss = self._y_model.loss(y=y, condition=condition)
             if len(condition.size()) == 1:
                 return loss.mean()
             else:
@@ -120,7 +120,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
                 self._y_model.sample_x(len(condition)).to(self.device)
             ], dim=1)
             y = self.generate(condition)
-            loss = self._y_model.loss(y=y)
+            loss = self._y_model.loss(y=y, condition=condition)
             return loss
 
     def grad(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:

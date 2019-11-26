@@ -40,5 +40,6 @@ def main(optimized_function, init_psi):
     for process in processes:
         print(process.pid)
 
+
 if __name__ == "__main__":
     main()

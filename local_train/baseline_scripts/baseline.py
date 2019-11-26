@@ -12,7 +12,8 @@ from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, \
                   RosenbrockModel, SHiPModel, ModelDegenerate, ModelInstrict, \
-                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
+                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, \
+                  SHiPModelNoVolumeConstraints
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *
@@ -104,6 +105,7 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
 @click.option('--n', type=int, default=3)
 @click.option('--num_repetitions', type=int, default=3000)
 @click.option('--h', type=float, default=0.2)
+@click.option('--use_true_grad', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(
         logger,
@@ -117,6 +119,7 @@ def main(
         num_repetitions,
         n,
         h,
+        use_true_grad,
         init_psi,
 ):
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
@@ -139,15 +142,18 @@ def main(
 
     logger = str_to_class(logger)(experiment)
     y_model = optimized_function_cls(device=device, psi_init=init_psi)
-    grad_func = lambda f, x, n, h: compute_gradient_of_vector_function(f=f, x=x, n=n, h=h, scheme=diff_scheme_func)
-    ndiff = NumericalDifferencesModel(y_model=y_model,
-                                      psi_dim=psi_dim,
-                                      y_dim=1,
-                                      x_dim=1,
-                                      n=n,
-                                      h=h,
-                                      num_repetitions=num_repetitions,
-                                      grad_func=grad_func)
+    if use_true_grad:
+        ndiff = y_model
+    else:
+        grad_func = lambda f, x, n, h: compute_gradient_of_vector_function(f=f, x=x, n=n, h=h, scheme=diff_scheme_func)
+        ndiff = NumericalDifferencesModel(y_model=y_model,
+                                          psi_dim=psi_dim,
+                                          y_dim=1,
+                                          x_dim=1,
+                                          n=n,
+                                          h=h,
+                                          num_repetitions=num_repetitions,
+                                          grad_func=grad_func)
 
     max_iters = optimizer_config['max_iters']
     optimizer_config['max_iters'] = 1
@@ -157,7 +163,7 @@ def main(
         current_psi, status, history = optimizer.optimize()
         print(current_psi)
         # if iter % 10 == 0:
-        if not isinstance(y_model, SHiPModel):
+        if not (isinstance(y_model, SHiPModel) or isinstance(y_model, SHiPModelNoVolumeConstraints)):
             logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
         logger.log_performance(y_sampler=y_model,
                                current_psi=current_psi,
