@@ -16,8 +16,7 @@ import pyro.distributions as dist
 from pyDOE import lhs
 import time
 import pickle
-
-from model import SHiPModel
+# from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
 
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
@@ -502,6 +501,7 @@ class CometLogger(SimpleLogger):
         # LTS does not support vectorized psis yet, so we use loop
         if type(oracle).__name__ in ["LearnToSimModel", "VoidModel", "NumericalDifferencesModel"]:
             model_grads_list = []
+            _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
             for index in range(n_samples):
                 model_grads_list.append(oracle.grad(_current_psi[index, :],
                                                     update_baselines=False, update_policy=False).detach())

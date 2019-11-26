@@ -7,6 +7,7 @@ from typing import Callable
 from joblib import Parallel, delayed
 PARALLEL = False
 
+
 def richardson(f, x, n, h):
     """
     Richardson's Extrapolation

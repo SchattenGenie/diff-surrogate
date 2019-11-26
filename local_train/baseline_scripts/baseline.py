@@ -13,7 +13,7 @@ sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, \
                   RosenbrockModel, SHiPModel, ModelDegenerate, ModelInstrict, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, \
-                  SHiPModelNoVolumeConstraints
+                  SimpleSHiPModel
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *
@@ -89,7 +89,7 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
     def log_density(self):
         pass
 
-    def loss(self):
+    def loss(self, **kwargs):
         pass
 
 
@@ -105,6 +105,7 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
 @click.option('--n', type=int, default=3)
 @click.option('--num_repetitions', type=int, default=3000)
 @click.option('--h', type=float, default=0.2)
+@click.option('--p', type=int, default=10)
 @click.option('--use_true_grad', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(
@@ -121,6 +122,7 @@ def main(
         h,
         use_true_grad,
         init_psi,
+        p
 ):
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
@@ -157,14 +159,16 @@ def main(
 
     max_iters = optimizer_config['max_iters']
     optimizer_config['max_iters'] = 1
+    optimizer_config['p'] = p
     optimizer = optimizer_cls(oracle=ndiff, x=init_psi, **optimizer_config)
 
     for iter in range(max_iters):
         current_psi, status, history = optimizer.optimize()
         print(current_psi)
         # if iter % 10 == 0:
-        if not (isinstance(y_model, SHiPModel) or isinstance(y_model, SHiPModelNoVolumeConstraints)):
-            logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
+        if not (isinstance(y_model, SHiPModel) or isinstance(y_model, SimpleSHiPModel)):
+            pass
+            # logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
         logger.log_performance(y_sampler=y_model,
                                current_psi=current_psi,
                                n_samples=5000)
