@@ -9,14 +9,12 @@ import lhsmdu
 import numpy as np
 import torch
 import sys
-sys.path.append('../')
 from tqdm import tqdm
 from utils import Metrics
 import pyro.distributions as dist
 from pyDOE import lhs
 import time
 import pickle
-from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
 
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
@@ -254,7 +252,8 @@ class BaseLogger(ABC):
         self._perfomance_logs['n_samples'].append(n_samples)
         self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=10000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
-        if not (isinstance(y_sampler, SimpleSHiPModel) or isinstance(y_sampler, SimpleSHiPModel) or isinstance(y_sampler, SimpleSHiPModel)):
+        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+
             self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
         else:
             self._perfomance_logs['psi_grad'].append(np.zeros_like(current_psi.detach().cpu().numpy()))

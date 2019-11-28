@@ -63,14 +63,18 @@ class BaseOptimizer(ABC):
                               num_repetitions=self._num_repetitions).detach().cpu().numpy()
         )
 
-        if not (isinstance(y_sampler, SimpleSHiPModel) or isinstance(y_sampler, SimpleSHiPModel) or isinstance(y_sampler, SimpleSHiPModel)):
+        if not (
+                isinstance(self._oracle, SimpleSHiPModel) or
+                isinstance(self._oracle, SHiPModel) or
+                isinstance(self._oracle, FullSHiPModel)
+        ):
             self._history['grad'].append(
                 self._oracle.grad(self._x,
                                   num_repetitions=self._num_repetitions).detach().cpu().numpy()
             )
         else:
             self._history['grad'].append(np.zeros_like(self._x.detach().cpu().numpy()))
-            
+
         self._history['x'].append(
             self._x.detach().cpu().numpy()
         )

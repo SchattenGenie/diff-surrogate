@@ -13,8 +13,10 @@ import seaborn as sns
 import lhsmdu
 import tqdm
 import requests
+import traceback
 import json
 import time
+
 
 def volume_of_frastrum(half_h, area_1, area_2):
     return 1 / 3. * 2 * half_h * (area_1 + area_2 + torch.sqrt(area_1 * area_2))
@@ -1013,9 +1015,21 @@ class SimpleSHiPModel(YModel):
         return torch.prod(torch.sigmoid(y - self._left_bound) - torch.sigmoid(y - self._right_bound), dim=1).mean()
 
     def _generate(self, condition, num_repetitions):
-        uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
-        time.sleep(2.)
-        data = self._request_data(uuid, wait=True)
+        # TODO: duct tape
+        data = None
+        for _ in range(3):
+            try:
+                uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
+                time.sleep(2.)
+                data = self._request_data(uuid, wait=True)
+                break
+            except Exception as e:
+                print(e, traceback.format_exc())
+        if (data is None) or (len(data['muons_momentum']) == 0):
+            data = {
+                'muons_momentum': np.zeros(num_repetitions, 4),
+                'veto_points': 1000000 * np.ones(num_repetitions, 2)
+            }
         return data
 
     def _generate_multiple(self, condition, num_repetitions):
@@ -1043,9 +1057,8 @@ class SimpleSHiPModel(YModel):
                     res[uuid]['condition'] = uuids_to_condition[uuid]
                 elif answer["container_status"] == 'failed':
                     uuids_processed.append(uuid)
-                    # TODO: ignore?
+                    # TODO: ignore? duck tape
                     # raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
-
             uuids = list(set(uuids) - set(uuids_processed))
         return uuids_original, res
 
@@ -1091,16 +1104,21 @@ class SimpleSHiPModel(YModel):
         xs = []
         psi = []
         for uuid in uuids:
-            xs.append(data[uuid]['muons_momentum'])
-            y.append(data[uuid]['veto_points'])
-            cond = data[uuid]['condition']
-            num_entries = len(data[uuid]['muons_momentum'])
-            # TODO: fix in case of 0 entries
-            psi.append(cond.repeat(num_entries, 1))
-        xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
-        y = torch.tensor(np.concatenate(y)).float().to(self.device)
-        psi = torch.cat(psi)
-
+            if len(data[uuid]['muons_momentum']):
+                xs.append(data[uuid]['muons_momentum'])
+                y.append(data[uuid]['veto_points'])
+                cond = data[uuid]['condition']
+                num_entries = len(data[uuid]['muons_momentum'])
+                psi.append(cond.repeat(num_entries, 1))
+        try:
+            xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
+            y = torch.tensor(np.concatenate(y)).float().to(self.device)
+            psi = torch.cat(psi)
+        except:
+            # TODO: even more duck tape
+            psi = current_psi.repeat(n_samples_per_dim, 1).float().to(self.device)
+            y = (10000 * torch.ones(2)).repeat(n_samples_per_dim, 1).float().to(self.device)
+            xs = (torch.zeros(3)).repeat(n_samples_per_dim, 1).float().to(self.device)
         return y[:, :2], torch.cat([psi, xs], dim=1)
 
     def loss(self, y):

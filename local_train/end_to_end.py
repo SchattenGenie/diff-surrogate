@@ -76,7 +76,7 @@ def end_to_end_training(epochs: int,
                         use_experience_replay: bool =True,
                         add_box_constraints: bool = False,
                         experiment = None,
-                        use_adaptive_borders=True
+                        use_adaptive_borders=False
                         ):
     """
 

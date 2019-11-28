@@ -5,7 +5,7 @@ from scipy.misc import central_diff_weights
 from tqdm import tqdm
 from typing import Callable
 from joblib import Parallel, delayed
-PARALLEL = False
+PARALLEL = True
 
 
 def richardson(f, x, n, h):
