@@ -208,6 +208,49 @@ class RosenbrockModel(YModel):
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
 
 
+class Hartmann6(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-0.01, 0.01),
+                 loss=lambda y: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1)  # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+        self.alpha = torch.tensor([1.00, 1.20, 3.00, 3.20]).float().to(device)
+        self.A = torch.tensor(
+            [[10.00, 3.00, 17.00, 3.50, 1.70, 8.00],
+             [0.05, 10.00, 17.00, 0.10, 8.00, 14.00],
+             [3.00, 3.50, 1.70, 10.00, 17.00, 8.00],
+             [17.00, 8.00, 0.05, 10.00, 0.10, 14.00]]
+        ).float().to(device)
+        self.P = 0.0001 * torch.tensor(
+            [[1312, 1696, 5569, 124, 8283, 5886],
+             [2329, 4135, 8307, 3736, 1004, 9991],
+             [2348, 1451, 3522, 2883, 3047, 6650],
+             [4047, 8828, 8732, 5743, 1091, 381]]
+        ).float().to(device)
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_psi, self.std_val(latent_x))
+
+    def g(self, x):
+        external_sum = torch.zeros(len(x)).float().to(x)
+        for i in range(4):
+            internal_sum = torch.zeros(len(x)).float().to(x)
+            for j in range(6):
+                internal_sum = internal_sum + self.A[i, j] * (x[:, j] - self.P[i, j]) ** 2
+            external_sum = external_sum + self.alpha[i] * torch.exp(-internal_sum)
+
+        return -external_sum.view(-1, 1)
+
+
 def generate_covariance(n=100, a=2):
     np.random.seed(1337)
     A = np.matrix([np.random.randn(n) + np.random.randn(1) * a for i in range(n)])
