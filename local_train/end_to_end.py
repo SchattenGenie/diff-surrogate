@@ -10,7 +10,7 @@ sys.path.append('./RegressionNN')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
-                  ModelDegenerate, ModelInstrict, \
+                  ModelDegenerate, ModelInstrict, Hartmann6, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
@@ -76,7 +76,7 @@ def end_to_end_training(epochs: int,
                         use_experience_replay: bool =True,
                         add_box_constraints: bool = False,
                         experiment = None,
-                        use_adaptive_borders=True
+                        use_adaptive_borders=False
                         ):
     """
 

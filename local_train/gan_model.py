@@ -5,6 +5,7 @@ import torch
 import torch.utils.data as pytorch_data_utils
 from tqdm import trange, tqdm
 
+
 class GANModel(BaseConditionalGenerationOracle):
     def __init__(self,
                  y_model: BaseConditionalGenerationOracle,

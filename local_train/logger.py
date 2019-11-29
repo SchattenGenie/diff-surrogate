@@ -9,15 +9,12 @@ import lhsmdu
 import numpy as np
 import torch
 import sys
-sys.path.append('../')
 from tqdm import tqdm
 from utils import Metrics
 import pyro.distributions as dist
 from pyDOE import lhs
 import time
 import pickle
-
-from model import SHiPModel
 
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
@@ -253,9 +250,13 @@ class BaseLogger(ABC):
         self._perfomance_logs['time'].append(time.time() - self._time)
         self._time = time.time()
         self._perfomance_logs['n_samples'].append(n_samples)
-        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
+        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=10000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
-        self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=100000).detach().cpu().numpy())
+        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+
+            self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
+        else:
+            self._perfomance_logs['psi_grad'].append(np.zeros_like(current_psi.detach().cpu().numpy()))
 
 
 class SimpleLogger(BaseLogger):
@@ -502,6 +503,7 @@ class CometLogger(SimpleLogger):
         # LTS does not support vectorized psis yet, so we use loop
         if type(oracle).__name__ in ["LearnToSimModel", "VoidModel", "NumericalDifferencesModel"]:
             model_grads_list = []
+            _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
             for index in range(n_samples):
                 model_grads_list.append(oracle.grad(_current_psi[index, :],
                                                     update_baselines=False, update_policy=False).detach())
