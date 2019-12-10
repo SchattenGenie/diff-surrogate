@@ -710,11 +710,9 @@ class SHiPModel(YModel):
     def device(self):
         return self._device
 
-    def _request_data(self, uuid, wait=True):
+    def _request_data(self, uuid, wait=True, check_dims=True):
         r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
         r = json.loads(r.content)
-        if r["container_status"] == "exited":
-            return r
         if wait:
             while r["container_status"] not in ["exited", "failed"]:
                 time.sleep(2.)
@@ -722,9 +720,10 @@ class SHiPModel(YModel):
                 r = json.loads(r.content)
             if r["container_status"] == "failed":
                 raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
-            elif r["container_status"] == "exited":
-                return r
-            return r
+        if check_dims and r['container_status'] == "exited":
+            assert np.array(r[self.condition_key]).shape[0] == self._psi_dim
+            assert np.array(r[self.kinematics_key]).shape[1] == self._x_dim
+            assert np.array(r[self.hits_key]).shape[1] == self._y_dim
         return r
 
     def _request_uuid(self, condition, num_repetitions):
@@ -823,12 +822,17 @@ class SHiPModel(YModel):
         psi = []
         for uuid in uuids:
             print(data[uuid].keys())
+            num_entries = len(data[uuid][self.kinematics_key])
+            if num_entries == 0:
+                continue
             xs.append(data[uuid][self.kinematics_key])
             y.append(data[uuid][self.hits_key])
             cond = data[uuid][self.condition_key]
-            num_entries = len(data[uuid][self.kinematics_key])
-            # TODO: fix in case of 0 entries
             psi.append(cond.repeat(num_entries, 1))
+        if len(xs) == len(y) == 0:
+            return None, None
+        # TODO: fix in case of 0 entries
+        # if there is absolutelt no entires have passed
         xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
         self.saved_muon_input_kinematics = xs
         y = torch.tensor(np.concatenate(y)).float().to(self.device)
@@ -875,11 +879,11 @@ class FullSHiPModel(SHiPModel):
     def __init__(self,
                  device,
                  psi_init: torch.Tensor,
-                 address: str = 'http://13.65.255.46:5432',
-                 x_dim=42,
+                 address: str = 'http://52.171.219.211:5433',
+                 x_dim=7,
                  y_dim=2):
         super().__init__(device=device, psi_init=psi_init,
-                                     address=address)  # hardcoded values
+                         address=address, x_dim=x_dim, y_dim=y_dim)
         self._psi_dist = dist.Delta(psi_init.to(device))
         self._psi_dim = len(psi_init)
         self.hits_key = "veto_points"
@@ -943,7 +947,8 @@ class FullSHiPModel(SHiPModel):
                    torch.sum(torch.sqrt((5.6 + (x_minus - 3)) / 5.6), dim=0, keepdim=True)
 
         W_star = torch.tensor(1915820.).to(self._device)
-        W_ship = torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
+        # TODO: Dont want to run a k8s job for just parameter check for now
+        W_ship = None # torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
         W = self.calculate_weight(conditions[0, :self._psi_dim])
         print("Analytic mass: {}, true mass {}".format(W, W_ship))
 
