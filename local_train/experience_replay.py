@@ -13,6 +13,9 @@ class ExperienceReplay:
         self._condition = torch.zeros(0, self._x_dim + self._psi_dim).float().to('cpu')
 
     def add(self, y, condition):
+        if y is None and condition is None:
+            y = torch.zeros(0, self._y_dim).float()
+            condition = torch.zeros(0, self._x_dim + self._psi_dim).float()
         self._y = torch.cat([self._y, y.to('cpu')], dim=0)
         self._condition = torch.cat([self._condition, condition.to('cpu')], dim=0)
         return self
