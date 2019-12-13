@@ -662,11 +662,11 @@ class GANLogger(object):
         self._experiment.log_metric("g_loss", np.mean(losses[1]), step=self._epoch)
 
     def log_validation_metrics(self, y_sampler, data, init_conditions, gan_model, psi_range, n_psi_samples=100,
-                               per_psi_sample_size=2000, batch_size=None):
+                               per_psi_sample_size=2000, batch_size=None, calculate_validation_set=False):
         js = []
         ks = []
 
-        if (self._epoch + 0) % 5 == 0:
+        if calculate_validation_set and (self._epoch + 0) % 5 == 0:
             psi_grid = dist.Uniform(*psi_range).sample([n_psi_samples]).to(gan_model.device)
             x = y_sampler.sample_x(per_psi_sample_size * n_psi_samples).to(gan_model.device)
             psi = psi_grid.repeat(1, per_psi_sample_size).view(-1, len(psi_range[0]))
