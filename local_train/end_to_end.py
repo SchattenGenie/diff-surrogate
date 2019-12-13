@@ -199,6 +199,8 @@ def end_to_end_training(epochs: int,
             add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
         current_psi, status, history = optimizer.optimize()
+        if type(model).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+            current_psi = torch.clamp(current_psi, 1e-5, 1e5)
 
         try:
             # logging optimization, i.e. statistics of psi
