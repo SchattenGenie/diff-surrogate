@@ -126,6 +126,9 @@ def end_to_end_training(epochs: int,
             x_dim=model_config['x_dim'],
             device=device
         )
+    logger.log_performance(y_sampler=y_sampler,
+                           current_psi=current_psi,
+                           n_samples=n_samples)
     for epoch in range(epochs):
         # generate new data sample
         # condition
@@ -225,6 +228,7 @@ def end_to_end_training(epochs: int,
             print(traceback.format_exc())
             # raise
         torch.cuda.empty_cache()
+    logger.func_saver.join()
     return
 
 
