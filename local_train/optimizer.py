@@ -415,6 +415,7 @@ class TorchOptimizer(BaseOptimizer):
 
         self._base_optimizer.zero_grad()
         d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
+        print("Grad: ", d_k)
         self._x.grad = d_k.detach().clone()
         self._base_optimizer.step()
         print("PSI", self._x)

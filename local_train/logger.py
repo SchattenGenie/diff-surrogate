@@ -130,7 +130,7 @@ class FuncSaver(object):
     def submit_job(self, current_psi, func, epoch):
         thread = Thread(target=lambda index, psi, rep: self.insert(
                             *(index, func(psi, num_repetitions=rep).detach().cpu().numpy())),
-                            args=(epoch, current_psi, 100000)
+                            args=(epoch, current_psi, 485879)
                         )
         thread.start()
         self.threads_queue.append(thread)
