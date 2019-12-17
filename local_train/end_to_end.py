@@ -76,7 +76,8 @@ def end_to_end_training(epochs: int,
                         use_experience_replay: bool =True,
                         add_box_constraints: bool = False,
                         experiment = None,
-                        use_adaptive_borders=False
+                        use_adaptive_borders=False,
+                        scale_psi=False
                         ):
     """
 
@@ -167,6 +168,20 @@ def end_to_end_training(epochs: int,
             np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
         )
 
+        ## Scale train set
+        if scale_psi:
+            scale_factor = 10
+            feature_max = condition[:, :model_config['psi_dim']].max(axis=0)[0]
+            y_sampler.scale_factor = scale_factor
+            y_sampler.feature_max = feature_max
+            y_sampler.scale_psi = True
+            print("MAX FEATURES", feature_max)
+            condition[:, :model_config['psi_dim']] /= feature_max * scale_factor
+            current_psi = current_psi / feature_max * scale_factor
+            print(feature_max.shape, current_psi.shape)
+            print("MAX PSI", current_psi)
+
+
         model.train()
         if reuse_model:
             if shift_model:
@@ -201,13 +216,18 @@ def end_to_end_training(epochs: int,
             box_barriers = make_box_barriers(current_psi, step_data_gen)
             add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
-        current_psi, status, history = optimizer.optimize()
-        if type(model).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+        if scale_psi:
+            current_psi, status, history = optimizer.optimize()
+            current_psi = current_psi / scale_factor * feature_max
+            y_sampler.scale_psi = False
+            print("NEW_PSI: ", current_psi)
+
+        if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
             current_psi = torch.clamp(current_psi, 1e-5, 1e5)
 
         try:
             # logging optimization, i.e. statistics of psi
-            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
+            #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
@@ -255,6 +275,7 @@ def end_to_end_training(epochs: int,
 @click.option('--use_experience_replay', type=bool, default=True)
 @click.option('--use_adaptive_borders', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
+@click.option('--scale_psi', type=bool, default=False)
 def main(model,
          optimizer,
          logger,
@@ -276,7 +297,8 @@ def main(model,
          use_experience_replay,
          add_box_constraints,
          use_adaptive_borders,
-         init_psi
+         init_psi,
+         scale_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
@@ -333,7 +355,8 @@ def main(model,
         add_box_constraints=add_box_constraints,
         use_experience_replay=use_experience_replay,
         experiment=experiment,
-        use_adaptive_borders=use_adaptive_borders
+        use_adaptive_borders=use_adaptive_borders,
+        scale_psi=scale_psi
     )
 
 

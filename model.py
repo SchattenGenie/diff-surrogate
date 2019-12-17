@@ -767,15 +767,18 @@ class SHiPModel(YModel):
                 answer = self._request_data(uuid, wait=False)
                 # TODO: rewrite
                 if answer["container_status"] == 'exited':
-                    uuids_processed.append(uuid)
                     res[uuid] = answer
                     res[uuid][self.condition_key] = uuids_to_condition[uuid]
+                    uuids_processed.append(uuid)
+                    print("S ", uuid)
                 elif answer["container_status"] == 'failed':
+                    print("F ", uuid)
                     uuids_processed.append(uuid)
                     # TODO: ignore?
                     # raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
 
             uuids = list(set(uuids) - set(uuids_processed))
+        print("GM", len(res.keys()))
         return uuids_original, res
 
     def _func(self, condition, num_repetitions):
@@ -817,6 +820,7 @@ class SHiPModel(YModel):
         condition = torch.tensor(condition).float().to(self.device)
         condition = torch.clamp(condition, 1e-5, 1e5)
         uuids, data = self._generate_multiple(condition, num_repetitions=n_samples_per_dim)
+        print("ORIG ", len(uuids))
         y = []
         xs = []
         psi = []
@@ -889,6 +893,7 @@ class FullSHiPModel(SHiPModel):
         self.hits_key = "veto_points"
         self.kinematics_key = "kinematics"
         self.condition_key = "params"
+        self.scale_psi = False
 
     def sample_x(self, num_repetitions):
         # TODO: For now use boostrap, once
@@ -949,11 +954,23 @@ class FullSHiPModel(SHiPModel):
         W_star = torch.tensor(1915820.).to(self._device)
         # TODO: Dont want to run a k8s job for just parameter check for now
         W_ship = None # torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
-        W = self.calculate_weight(conditions[0, :self._psi_dim])
+        if self.scale_psi:
+            W = self.calculate_weight(conditions[0, :self._psi_dim] / self.scale_factor * self.feature_max)
+        else:
+            W = self.calculate_weight(conditions[0, :self._psi_dim])
         print("Analytic mass: {}, true mass {}".format(W, W_ship))
 
-        return (1 + torch.exp(10. * (W - W_star) / W_star)) * (
-                1. + sum_term) + torch.nn.functional.relu(W - 3e6) * 1e8
+
+        # weight_loss = 1 + torch.exp(10. * (W - W_star) / W_star)
+        # hits_loss = 1. + sum_term
+        weight_loss = 0. #torch.exp(10. * (W - W_star) / W_star)
+        hits_loss = sum_term
+        reg_coeff = 5.
+
+        print("Weight loss: {}, Hits loss: {}".format(weight_loss, hits_loss))
+
+        #return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
+        return hits_loss + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
 
     def _func(self, condition, num_repetitions):
         res = self._generate(condition, num_repetitions=num_repetitions)
