@@ -372,7 +372,7 @@ def main(model,
         use_experience_replay=use_experience_replay,
         experiment=experiment,
         use_adaptive_borders=use_adaptive_borders,
-        use_trust_region=use_trust_region
+        use_trust_region=use_trust_region,
         scale_psi=scale_psi
     )
 
