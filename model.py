@@ -710,11 +710,9 @@ class SHiPModel(YModel):
     def device(self):
         return self._device
 
-    def _request_data(self, uuid, wait=True):
+    def _request_data(self, uuid, wait=True, check_dims=True):
         r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
         r = json.loads(r.content)
-        if r["container_status"] == "exited":
-            return r
         if wait:
             while r["container_status"] not in ["exited", "failed"]:
                 time.sleep(2.)
@@ -722,9 +720,10 @@ class SHiPModel(YModel):
                 r = json.loads(r.content)
             if r["container_status"] == "failed":
                 raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
-            elif r["container_status"] == "exited":
-                return r
-            return r
+        if check_dims and r['container_status'] == "exited":
+            assert np.array(r[self.condition_key]).shape[0] == self._psi_dim
+            assert np.array(r[self.kinematics_key]).shape[1] == self._x_dim
+            assert np.array(r[self.hits_key]).shape[1] == self._y_dim
         return r
 
     def _request_uuid(self, condition, num_repetitions):
@@ -768,15 +767,18 @@ class SHiPModel(YModel):
                 answer = self._request_data(uuid, wait=False)
                 # TODO: rewrite
                 if answer["container_status"] == 'exited':
-                    uuids_processed.append(uuid)
                     res[uuid] = answer
                     res[uuid][self.condition_key] = uuids_to_condition[uuid]
+                    uuids_processed.append(uuid)
+                    print("S ", uuid)
                 elif answer["container_status"] == 'failed':
+                    print("F ", uuid)
                     uuids_processed.append(uuid)
                     # TODO: ignore?
                     # raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
 
             uuids = list(set(uuids) - set(uuids_processed))
+        print("GM", len(res.keys()))
         return uuids_original, res
 
     def _func(self, condition, num_repetitions):
@@ -818,17 +820,23 @@ class SHiPModel(YModel):
         condition = torch.tensor(condition).float().to(self.device)
         condition = torch.clamp(condition, 1e-5, 1e5)
         uuids, data = self._generate_multiple(condition, num_repetitions=n_samples_per_dim)
+        print("ORIG ", len(uuids))
         y = []
         xs = []
         psi = []
         for uuid in uuids:
             print(data[uuid].keys())
+            num_entries = len(data[uuid][self.kinematics_key])
+            if num_entries == 0:
+                continue
             xs.append(data[uuid][self.kinematics_key])
             y.append(data[uuid][self.hits_key])
             cond = data[uuid][self.condition_key]
-            num_entries = len(data[uuid][self.kinematics_key])
-            # TODO: fix in case of 0 entries
             psi.append(cond.repeat(num_entries, 1))
+        if len(xs) == len(y) == 0:
+            return None, None
+        # TODO: fix in case of 0 entries
+        # if there is absolutelt no entires have passed
         xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
         self.saved_muon_input_kinematics = xs
         y = torch.tensor(np.concatenate(y)).float().to(self.device)
@@ -875,16 +883,17 @@ class FullSHiPModel(SHiPModel):
     def __init__(self,
                  device,
                  psi_init: torch.Tensor,
-                 address: str = 'http://13.65.255.46:5432',
-                 x_dim=42,
+                 address: str = 'http://52.171.219.211:5433',
+                 x_dim=7,
                  y_dim=2):
         super().__init__(device=device, psi_init=psi_init,
-                                     address=address)  # hardcoded values
+                         address=address, x_dim=x_dim, y_dim=y_dim)
         self._psi_dist = dist.Delta(psi_init.to(device))
         self._psi_dim = len(psi_init)
         self.hits_key = "veto_points"
         self.kinematics_key = "kinematics"
         self.condition_key = "params"
+        self.scale_psi = False
 
     def sample_x(self, num_repetitions):
         # TODO: For now use boostrap, once
@@ -943,12 +952,25 @@ class FullSHiPModel(SHiPModel):
                    torch.sum(torch.sqrt((5.6 + (x_minus - 3)) / 5.6), dim=0, keepdim=True)
 
         W_star = torch.tensor(1915820.).to(self._device)
-        W_ship = torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
-        W = self.calculate_weight(conditions[0, :self._psi_dim])
+        # TODO: Dont want to run a k8s job for just parameter check for now
+        W_ship = None # torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
+        if self.scale_psi:
+            W = self.calculate_weight(conditions[0, :self._psi_dim] / self.scale_factor * self.feature_max)
+        else:
+            W = self.calculate_weight(conditions[0, :self._psi_dim])
         print("Analytic mass: {}, true mass {}".format(W, W_ship))
 
-        return (1 + torch.exp(10. * (W - W_star) / W_star)) * (
-                1. + sum_term) + torch.nn.functional.relu(W - 3e6) * 1e8
+
+        # weight_loss = 1 + torch.exp(10. * (W - W_star) / W_star)
+        # hits_loss = 1. + sum_term
+        weight_loss = 0. #torch.exp(10. * (W - W_star) / W_star)
+        hits_loss = sum_term
+        reg_coeff = 5.
+
+        print("Weight loss: {}, Hits loss: {}".format(weight_loss, hits_loss))
+
+        #return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
+        return hits_loss + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
 
     def _func(self, condition, num_repetitions):
         res = self._generate(condition, num_repetitions=num_repetitions)

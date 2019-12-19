@@ -79,6 +79,7 @@ def end_to_end_training(epochs: int,
                         experiment = None,
                         use_adaptive_borders=False,
                         use_trust_region=False,
+                        scale_psi=False
                         ):
     """
 
@@ -131,6 +132,9 @@ def end_to_end_training(epochs: int,
     if use_trust_region:
         trust_region = TrustRegion()
 
+    logger.log_performance(y_sampler=y_sampler,
+                           current_psi=current_psi,
+                           n_samples=n_samples)
     for epoch in range(epochs):
         # generate new data sample
         # condition
@@ -151,6 +155,9 @@ def end_to_end_training(epochs: int,
                 step=step_data_gen,
                 current_psi=current_psi,
                 n_samples=n_samples)
+            if x is None and condition is None:
+                print("Empty training set, continue")
+                continue
         if use_experience_replay:
                 x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
                 exp_replay.add(y=x, condition=condition)
@@ -165,6 +172,20 @@ def end_to_end_training(epochs: int,
             condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
             np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
         )
+
+        ## Scale train set
+        if scale_psi:
+            scale_factor = 10
+            feature_max = condition[:, :model_config['psi_dim']].max(axis=0)[0]
+            y_sampler.scale_factor = scale_factor
+            y_sampler.feature_max = feature_max
+            y_sampler.scale_psi = True
+            print("MAX FEATURES", feature_max)
+            condition[:, :model_config['psi_dim']] /= feature_max * scale_factor
+            current_psi = current_psi / feature_max * scale_factor
+            print(feature_max.shape, current_psi.shape)
+            print("MAX PSI", current_psi)
+
 
         model.train()
         if reuse_model:
@@ -202,6 +223,14 @@ def end_to_end_training(epochs: int,
 
         previous_psi = current_psi.clone()
         current_psi, status, history = optimizer.optimize()
+        if scale_psi:
+            current_psi, status, history = optimizer.optimize()
+            current_psi = current_psi / scale_factor * feature_max
+            y_sampler.scale_psi = False
+            print("NEW_PSI: ", current_psi)
+
+        if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+            current_psi = torch.clamp(current_psi, 1e-5, 1e5)
 
         if use_trust_region:
             current_psi, step_data_gen = trust_region.step(
@@ -212,7 +241,7 @@ def end_to_end_training(epochs: int,
 
         try:
             # logging optimization, i.e. statistics of psi
-            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
+            #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
@@ -233,6 +262,7 @@ def end_to_end_training(epochs: int,
             print(traceback.format_exc())
             # raise
         torch.cuda.empty_cache()
+    logger.func_saver.join()
     return
 
 
@@ -260,6 +290,7 @@ def end_to_end_training(epochs: int,
 @click.option('--use_adaptive_borders', type=bool, default=False)
 @click.option('--use_trust_region', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
+@click.option('--scale_psi', type=bool, default=False)
 def main(model,
          optimizer,
          logger,
@@ -282,7 +313,8 @@ def main(model,
          add_box_constraints,
          use_adaptive_borders,
          use_trust_region,
-         init_psi
+         init_psi,
+         scale_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
@@ -341,6 +373,7 @@ def main(model,
         experiment=experiment,
         use_adaptive_borders=use_adaptive_borders,
         use_trust_region=use_trust_region
+        scale_psi=scale_psi
     )
 
 

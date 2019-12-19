@@ -161,10 +161,10 @@ class GANModel(BaseConditionalGenerationOracle):
                 if self.attention_net:
                     self.logger._experiment.log_metric("GAMMA", self.attention_net.gamma.item(), step=self.logger._epoch)
                 self.logger.log_losses([dis_epoch_loss, gen_epoch_loss])
-                # self.logger.log_validation_metrics(self._y_model, y, condition, self,
-                #                                    (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
-                #                                     condition[:, :self._psi_dim].max(dim=0)[0].view(-1)),
-                #                                    batch_size=1000)
+                self.logger.log_validation_metrics(self._y_model, y, condition, self,
+                                                   (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
+                                                    condition[:, :self._psi_dim].max(dim=0)[0].view(-1)),
+                                                   batch_size=1000, calculate_validation_set=False)
                 self.logger.add_up_epoch()
 
         if self.burn_in_period is not None:

@@ -15,6 +15,7 @@ import pyro.distributions as dist
 from pyDOE import lhs
 import time
 import pickle
+from threading import Lock, Thread
 
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
@@ -74,6 +75,78 @@ def smooth(x, window_len=11, window='hanning'):
     y = np.convolve(w / w.sum(), s, mode='valid')
     return y
 
+# class FuncHeap(object):
+#     def __init__(self, lock):
+#         self.lock = lock
+#         self.heap = []
+#         self.last_epoch = 0
+#         self.threads_queue = deque()
+#         self.metric_epoch = 0
+#
+#     def insert(self, epoch_index, func_value):
+#         with self.lock:
+#             heapq.heappush(self.heap, (epoch_index, func_value))
+#
+#     def extract(self, metric_dict, metric_name):
+#         extract_counts = 0
+#         if self.heap and self.last_epoch == self.heap[0][0]:
+#             with self.lock():
+#                 _, func_value = heapq.heappop(self.heap)
+#                 self.last_epoch += 1
+#                 metric_dict[metric_name].append(func_value)
+#                 extract_counts += 1
+#         return extract_counts
+#
+#     def submit_job(self, current_psi, func, epoch):
+#         thread = Thread(target=lambda index, psi, rep: self.insert(
+#                             (index, func(psi, num_repetitions=rep).detach().cpu().numpy())),
+#                             args=(epoch, current_psi, 100000)
+#                         ).start()
+#         self.threads_queue.append(thread)
+#
+#     def log_metric(self, metric_dict, metric_name):
+#         self._experiment.log_metric('Func value', metric_dict[metric_name][-1][-1], self.metric_epoch)
+#         self.metric_epoch += 1
+#
+#     def update(self, metric_dict, metric_name='func'):
+#         for count in range(self.extract(metric_dict, metric_name)):
+#             self.log_metric(metric_dict, metric_name)
+
+class FuncSaver(object):
+    def __init__(self, experiment):
+        self.lock = Lock()
+        self.results = []
+        self.threads_queue = []
+        self._experiment = experiment
+
+    def insert(self, epoch_index, func_value):
+        with self.lock:
+            self.results.append((epoch_index, func_value[-1]))
+
+    def test(self):
+        time.sleep(5.)
+        return "!S!"
+
+    def submit_job(self, current_psi, func, epoch):
+        thread = Thread(target=lambda index, psi, rep: self.insert(
+                            *(index, func(psi, num_repetitions=rep).detach().cpu().numpy())),
+                            args=(epoch, current_psi, 485879)
+                        )
+        thread.start()
+        self.threads_queue.append(thread)
+
+    def update(self):
+        with self.lock:
+            while self.results:
+                self.log_metric(*self.results.pop())
+
+    def log_metric(self, epoch, func_value):
+        self._experiment.log_metric('Func value', func_value, epoch)
+
+    def join(self):
+        while self.threads_queue:
+            self.threads_queue.pop().join()
+        self.update()
 
 class BaseLogger(ABC):
     def __init__(self):
@@ -250,10 +323,9 @@ class BaseLogger(ABC):
         self._perfomance_logs['time'].append(time.time() - self._time)
         self._time = time.time()
         self._perfomance_logs['n_samples'].append(n_samples)
-        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=10000).detach().cpu().numpy())
+        #self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
         if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
-
             self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
         else:
             self._perfomance_logs['psi_grad'].append(np.zeros_like(current_psi.detach().cpu().numpy()))
@@ -425,6 +497,7 @@ class CometLogger(SimpleLogger):
         super(CometLogger, self).__init__()
         self._experiment = experiment
         self._epoch = 0
+        self.func_saver = FuncSaver(self._experiment)
 
     def log_optimizer(self, optimizer):
         figure = super().log_optimizer(optimizer)
@@ -461,7 +534,9 @@ class CometLogger(SimpleLogger):
     def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
-        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
+        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch)
+        self.func_saver.update()
+        #self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1][-1], step=self._epoch)
         self._experiment.log_metric('Used samples', self._perfomance_logs['n_samples'][-1], step=self._epoch)
         self._experiment.log_metric('Used samples cumm', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)
         psis = self._perfomance_logs['psi'][-1]
@@ -663,11 +738,11 @@ class GANLogger(object):
         self._experiment.log_metric("g_loss", np.mean(losses[1]), step=self._epoch)
 
     def log_validation_metrics(self, y_sampler, data, init_conditions, gan_model, psi_range, n_psi_samples=100,
-                               per_psi_sample_size=2000, batch_size=None):
+                               per_psi_sample_size=2000, batch_size=None, calculate_validation_set=False):
         js = []
         ks = []
 
-        if (self._epoch + 0) % 5 == 0:
+        if calculate_validation_set and (self._epoch + 0) % 5 == 0:
             psi_grid = dist.Uniform(*psi_range).sample([n_psi_samples]).to(gan_model.device)
             x = y_sampler.sample_x(per_psi_sample_size * n_psi_samples).to(gan_model.device)
             psi = psi_grid.repeat(1, per_psi_sample_size).view(-1, len(psi_range[0]))
@@ -711,6 +786,7 @@ class GANLogger(object):
             metric_diff = moment_of_true - moment_of_generated
 
             self._experiment.log_metric("train_data_diff_order_" + str(order), metric_diff, step=self._epoch)
+            self._experiment.log_metric("train_data_order_" + str(order), moment_of_true, step=self._epoch)
 
 
 class RegressionLogger(GANLogger):

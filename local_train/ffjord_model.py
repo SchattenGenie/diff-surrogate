@@ -69,7 +69,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  batch_norm: bool = True,
                  solver='fixed_adams',
                  hidden_dims: Tuple[int] = (32, 32),
-
+                 logger=None,
                  **kwargs):
         super(FFJORDModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         self._x_dim = x_dim
@@ -89,6 +89,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._sample_fn, self._density_fn = get_transforms(self._model)
         self._epochs = epochs
         self._lr = lr
+        self.logger = logger
 
     def loss(self, y, condition, weights=None):
         return compute_loss(self._model, data=y.detach(), condition=condition.detach(), weights=weights)
@@ -135,6 +136,12 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._model.load_state_dict(best_params)
         self.eval()
         self._sample_fn, self._density_fn = get_transforms(self._model)
+        if self.logger:
+            self.logger.log_validation_metrics(self._y_model, y, condition, self,
+                                               (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
+                                                condition[:, :self._psi_dim].max(dim=0)[0].view(-1)),
+                                               batch_size=1000, calculate_validation_set=False)
+            self.logger.add_up_epoch()
         return self
 
     def generate(self, condition):
