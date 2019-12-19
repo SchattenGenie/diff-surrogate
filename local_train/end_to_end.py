@@ -23,6 +23,7 @@ from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
 from adaptive_borders import AdaptiveBorders
+from trust_region import TrustRegion
 REWEIGHT = False
 
 if REWEIGHT:
@@ -76,7 +77,8 @@ def end_to_end_training(epochs: int,
                         use_experience_replay: bool =True,
                         add_box_constraints: bool = False,
                         experiment = None,
-                        use_adaptive_borders=False
+                        use_adaptive_borders=False,
+                        use_trust_region=False,
                         ):
     """
 
@@ -126,6 +128,9 @@ def end_to_end_training(epochs: int,
             x_dim=model_config['x_dim'],
             device=device
         )
+    if use_trust_region:
+        trust_region = TrustRegion()
+
     for epoch in range(epochs):
         # generate new data sample
         # condition
@@ -195,7 +200,15 @@ def end_to_end_training(epochs: int,
             box_barriers = make_box_barriers(current_psi, step_data_gen)
             add_barriers_to_oracle(oracle=model, barriers=box_barriers)
 
+        previous_psi = current_psi.clone()
         current_psi, status, history = optimizer.optimize()
+
+        if use_trust_region:
+            current_psi, step_data_gen = trust_region.step(
+                y_model=y_sampler, model=model,
+                previous_psi=previous_psi, current_psi=current_psi,
+                step=step_data_gen)
+            print("New step data gen:", step_data_gen)
 
         try:
             # logging optimization, i.e. statistics of psi
@@ -245,6 +258,7 @@ def end_to_end_training(epochs: int,
 @click.option('--add_box_constraints', type=bool, default=False)
 @click.option('--use_experience_replay', type=bool, default=True)
 @click.option('--use_adaptive_borders', type=bool, default=False)
+@click.option('--use_trust_region', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 def main(model,
          optimizer,
@@ -267,6 +281,7 @@ def main(model,
          use_experience_replay,
          add_box_constraints,
          use_adaptive_borders,
+         use_trust_region,
          init_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
@@ -324,7 +339,8 @@ def main(model,
         add_box_constraints=add_box_constraints,
         use_experience_replay=use_experience_replay,
         experiment=experiment,
-        use_adaptive_borders=use_adaptive_borders
+        use_adaptive_borders=use_adaptive_borders,
+        use_trust_region=use_trust_region
     )
 
 
