@@ -9,7 +9,7 @@ model_config = {
     'epochs': 30,
     'iters_discriminator': 1,
     'iters_generator': 1,
-    'instance_noise_std': None,
+    'instance_noise_std': 0.01,
     'burn_in_period': None,
     'averaging_coeff': 0.,
     'dis_output_dim': 256,

@@ -898,9 +898,12 @@ class FullSHiPModel(SHiPModel):
     def sample_x(self, num_repetitions):
         # TODO: For now use boostrap, once
         # things are working, sample from distributions somehow
-        sample_indeces = np.random.choice(range(len(self.saved_muon_input_kinematics)),
-                                num_repetitions, replace=True)
-        return self.saved_muon_input_kinematics[sample_indeces]
+        sample_indices = np.random.choice(
+            range(len(self.saved_muon_input_kinematics)),
+            num_repetitions,
+            replace=True
+        )
+        return self.saved_muon_input_kinematics[sample_indices]
 
     def _request_uuid(self, condition, num_repetitions):
         d = {"shape": condition.detach().cpu().numpy().tolist(),
@@ -925,6 +928,56 @@ class FullSHiPModel(SHiPModel):
 
     def loss(self, y, conditions):
         """
+        Vectorised oss function as in Oliver's code
+        :param y: 2D distribution of hits
+        :param conditions: full matrix of conditions(magenet and kinematic)
+        :return:
+        """
+        MUON = 13
+        left_margin = 2.6  # in m
+        right_margin = 3  # in m
+        y_margin = 5  # in m
+        y = y / 100. # convert cm to m
+        print("inside loss kinematics example value: {}".format(conditions[0, self._psi_dim:]))
+
+        acceptance_mask_plus = (y[:, 0] <= left_margin) & (-right_margin <= y[:, 0]) & (torch.abs(y[:, 1]) < y_margin) & (conditions[:, -1] == MUON)
+        acceptance_mask_minus = (y[:, 0] <= right_margin) & (-left_margin <= y[:, 0]) & (torch.abs(y[:, 1]) < y_margin) & (conditions[:, -1] == -MUON)
+
+        print((acceptance_mask_plus & acceptance_mask_minus).sum())
+        # 1e-5 and .abs() to prevent bad gradients of sqrt(-0), which leads to NaN in .grad for psi
+        sum_term_1 = (acceptance_mask_plus.float()) * torch.sqrt(1e-5 + ((5.6 - (y[:, 0] + 3)) / 5.6).abs())
+        # get rid of NaN
+        sum_term_1[sum_term_1 != sum_term_1] = 0.
+        sum_term_2 = (acceptance_mask_minus.float()) * torch.sqrt(1e-5 + ((5.6 + (y[:, 0] - 3)) / 5.6).abs())
+        sum_term_2[sum_term_2 != sum_term_2] = 0.
+
+        sum_term = sum_term_1 + sum_term_2
+
+        W_star = torch.tensor(1915820.).to(self._device)
+        # TODO: Dont want to run a k8s job for just parameter check for now
+        W_ship = None  # torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
+        if self.scale_psi:
+            W = self.calculate_weight(conditions[0, :self._psi_dim] / self.scale_factor * self.feature_max)
+        else:
+            W = self.calculate_weight(conditions[0, :self._psi_dim])
+        print("Analytic mass: {}, true mass {}".format(W, W_ship))
+
+        # weight_loss = 1 + torch.exp(10. * (W - W_star) / W_star)
+        # hits_loss = 1. + sum_term
+        weight_loss = torch.exp(10. * (W - W_star) / W_star)
+
+        # normalization to account a lot of zeros in loss function
+        # TODO: is it correct?
+        hits_loss = sum_term * ((sum_term.sum() / sum_term.mean()).item())
+        reg_coeff = 5.
+
+        print("Weight loss: {}, Hits loss: mean {}, sum {}".format(weight_loss, hits_loss.mean(), hits_loss.sum()))
+
+        #return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
+        return hits_loss  #  + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
+
+    def loss_not_vec(self, y, conditions):
+        """
         Loss function as in Oliver's code
         :param y: 2D distribution of hits
         :param conditions: full matrix of conditions(magenet and kinematic)
@@ -934,26 +987,24 @@ class FullSHiPModel(SHiPModel):
         left_margin = 2.6  # in m
         right_margin = 3  # in m
         y_margin = 5  # in m
-        y = y / 100  # convert cm to m
+        y = y  # convert cm to m
         print("inside loss kinematics example value: {}".format(conditions[0, self._psi_dim:]))
-        pid_mask = (conditions[:, -1] == MUON) &\
-                   (torch.abs(y[:, 1]) < y_margin)
+        pid_mask = (conditions[:, -1] == MUON) & (torch.abs(y[:, 1]) < y_margin)
         x_plus = y[pid_mask, 0]
-        acceptance_mask = (x_plus <= left_margin) &\
-                          (- right_margin <= x_plus)
+        acceptance_mask = (x_plus <= left_margin) & (-right_margin <= x_plus)
         x_plus = x_plus[acceptance_mask]
 
-        x_minus = y[~pid_mask, 0]
-        acceptance_mask = (x_minus <= right_margin) &\
-                          (- left_margin <= x_minus)
+        pid_mask = (conditions[:, -1] == -MUON) & (torch.abs(y[:, 1]) < y_margin)
+        x_minus = y[pid_mask, 0]
+        acceptance_mask = (x_minus <= right_margin) & (-left_margin <= x_minus)
         x_minus = x_minus[acceptance_mask]
-
+        return torch.sqrt((5.6 - (x_plus + 3)) / 5.6), torch.sqrt((5.6 + (x_minus - 3)) / 5.6)
         sum_term = torch.sum(torch.sqrt((5.6 - (x_plus + 3)) / 5.6), dim=0, keepdim=True) +\
                    torch.sum(torch.sqrt((5.6 + (x_minus - 3)) / 5.6), dim=0, keepdim=True)
 
         W_star = torch.tensor(1915820.).to(self._device)
         # TODO: Dont want to run a k8s job for just parameter check for now
-        W_ship = None # torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
+        W_ship = None  # torch.tensor(self.request_params(conditions[0, :self._psi_dim])["w"]).to(self._device)
         if self.scale_psi:
             W = self.calculate_weight(conditions[0, :self._psi_dim] / self.scale_factor * self.feature_max)
         else:
@@ -970,7 +1021,7 @@ class FullSHiPModel(SHiPModel):
         print("Weight loss: {}, Hits loss: {}".format(weight_loss, hits_loss))
 
         #return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
-        return hits_loss + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
+        return hits_loss  # + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
 
     def _func(self, condition, num_repetitions):
         res = self._generate(condition, num_repetitions=num_repetitions)
