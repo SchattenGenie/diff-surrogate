@@ -94,20 +94,20 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         
         self.fc1 = nn.Linear(noise_dim + x_dim + psi_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc1.weight)
-        nn.init.constant_(self.fc1.bias, 0.0)
+        # nn.init.xavier_normal_(self.fc1.weight)
+        # nn.init.constant_(self.fc1.bias, 0.0)
         
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc2.weight)
-        nn.init.constant_(self.fc2.bias, 0.0)
+        # nn.init.xavier_normal_(self.fc2.weight)
+        # nn.init.constant_(self.fc2.bias, 0.0)
         
         self.fc3 = nn.Linear(hidden_dim, out_dim)
-        nn.init.xavier_normal_(self.fc3.weight)
-        nn.init.constant_(self.fc3.bias, 0.0)
+        # nn.init.xavier_normal_(self.fc3.weight)
+        # nn.init.constant_(self.fc3.bias, 0.0)
         
         self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        nn.init.xavier_normal_(self.fc4.weight)
-        nn.init.constant_(self.fc4.bias, 0.0)        
+        # nn.init.xavier_normal_(self.fc4.weight)
+        # nn.init.constant_(self.fc4.bias, 0.0)
         
         # self.pc = psi_compressor
         self.psi_dim = psi_dim
