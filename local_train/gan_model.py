@@ -67,16 +67,27 @@ class GANModel(BaseConditionalGenerationOracle):
         self.burn_in_period = burn_in_period
         self.averaging_coeff = averaging_coeff
         self.gen_average_weights = []
+        self._cond_mean = torch.zeros(self._x_dim + self._psi_dim).float().to(y_model._device)
+        self._cond_std = torch.ones(self._x_dim + self._psi_dim).float().to(y_model._device)
+        self._y_mean = torch.zeros(self._y_dim).float().to(y_model._device)
+        self._y_std = torch.ones(self._y_dim).float().to(y_model._device)
 
     @staticmethod
     def instance_noise(data, std):
-        device = data.device
-        return data + torch.distributions.Normal(0, std).sample(data.shape).to(device)
+        return data + torch.randn_like(data) * data.std(dim=0) * std
 
     def loss(self, y, condition):
+        y = (y - self._y_mean) / self._y_std
+        condition = (condition - self._cond_mean) / self._cond_std
         return self._discriminator(y, condition)
 
     def fit(self, y, condition, weights=None):
+        self._cond_mean = condition.mean(0).detach().clone()
+        self._cond_std = condition.std(0).detach().clone()
+        self._y_mean = y.mean(0).detach().clone()
+        self._y_std = y.std(0).detach().clone()
+
+
         g_optimizer = torch.optim.Adam(self._generator.parameters(), lr=self._lr, betas=(0.5, 0.999))
         d_optimizer = torch.optim.Adam(self._discriminator.parameters(), lr=self._lr, betas=(0.5, 0.999))
 
@@ -173,9 +184,12 @@ class GANModel(BaseConditionalGenerationOracle):
         return self
 
     def generate(self, condition):
+        condition = (condition - self._cond_mean) / self._cond_std
         n = len(condition)
         z = torch.randn(n, self._noise_dim).to(self.device)
-        return self._generator(z, condition)
+        y = self._generator(z, condition)
+        y = y * self._y_std + self._y_mean
+        return y
 
     def log_density(self, y, condition):
         return None
