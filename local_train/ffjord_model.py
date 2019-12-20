@@ -90,11 +90,22 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._epochs = epochs
         self._lr = lr
         self.logger = logger
+        self._cond_mean = torch.zeros(self._x_dim + self._psi_dim).float().to(y_model._device)
+        self._cond_std = torch.ones(self._x_dim + self._psi_dim).float().to(y_model._device)
+        self._y_mean = torch.zeros(self._y_dim).float().to(y_model._device)
+        self._y_std = torch.ones(self._y_dim).float().to(y_model._device)
+
 
     def loss(self, y, condition, weights=None):
+        y = (y - self._y_mean) / self._y_std
+        condition = (condition - self._cond_mean) / self._cond_std
         return compute_loss(self._model, data=y.detach(), condition=condition.detach(), weights=weights)
 
     def fit(self, y, condition, weights=None):
+        self._cond_mean = condition.mean(0).detach().clone()
+        self._cond_std = condition.std(0).detach().clone()
+        self._y_mean = y.mean(0).detach().clone()
+        self._y_std = y.std(0).detach().clone()
         self.train()
         print(self.device)
         trainable_parameters = list(self._model.parameters())
@@ -122,9 +133,14 @@ class FFJORDModel(BaseConditionalGenerationOracle):
             if early_stopping.early_stop:
                 break
         """
-        for epoch in range(self._epochs):
+
+        for epoch in tqdm(range(self._epochs)):
             optimizer.zero_grad()
-            loss = self.loss(y + torch.randn_like(y) * y.std(dim=0) / 100, condition, weights=weights)
+            loss = self.loss(
+                y,  # + torch.randn_like(y) * y.std(dim=0) / 100
+                condition,  #  + torch.randn_like(condition) * condition.std(dim=0) / 100
+                weights=weights
+            )
             if loss.item() < best_loss:
                 best_params = copy.deepcopy(self._model.state_dict())
                 best_loss = loss.item()
@@ -145,9 +161,12 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         return self
 
     def generate(self, condition):
+        condition = (condition - self._cond_mean) / self._cond_std
         n = len(condition)
         z = torch.randn(n, self._y_dim).to(self.device)
-        return self._sample_fn(z, condition)
+        y = self._sample_fn(z, condition)
+        y = y * self._y_std + self._y_mean
+        return y
 
     def log_density(self, y, condition):
         return self._density_fn(y, condition)
