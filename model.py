@@ -61,10 +61,11 @@ def average_block_wise(x, num_repetitions):
 
 
 class YModel(BaseConditionalGenerationOracle):
-    def __init__(self, device,
+    def __init__(self,
+                 device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10), y_dim=1,
-                 loss=lambda y: OptLoss.SigmoidLoss(y, 5, 10)):
+                 loss=lambda y, **kwargs: OptLoss.SigmoidLoss(y, 5, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=y_dim)  # hardcoded values
@@ -192,7 +193,7 @@ class RosenbrockModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -212,7 +213,7 @@ class Hartmann6(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-0.01, 0.01),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1)  # hardcoded values
@@ -264,7 +265,7 @@ class RosenbrockModelDegenerate(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -299,7 +300,7 @@ class ModelDegenerate(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -329,7 +330,7 @@ class RosenbrockModelInstrict(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -358,7 +359,7 @@ class ModelInstrict(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -387,7 +388,7 @@ class RosenbrockModelDegenerateInstrict(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1)  # hardcoded values
@@ -422,7 +423,7 @@ class MultimodalSingularityModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y: torch.mean(y, dim=1)):
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -442,7 +443,7 @@ class GaussianMixtureHumpModel(YModel):
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
                  x_dim=2, y_dim=1,
-                 loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
+                 loss = lambda y, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=x_dim, y_dim=y_dim)
@@ -605,7 +606,7 @@ class FreqModulatedSoundWave(YModel):
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
                  x_dim=2, y_dim=2,
-                 loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
+                 loss=lambda y, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=x_dim, y_dim=y_dim)
@@ -626,7 +627,7 @@ class LennardJonesPotentialProblem(YModel):
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
                  x_dim=2, y_dim=2,
-                 loss = lambda y: OptLoss.SigmoidLoss(y, 0, 10)):
+                 loss = lambda y, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=x_dim, y_dim=y_dim)
@@ -973,7 +974,7 @@ class FullSHiPModel(SHiPModel):
 
         print("Weight loss: {}, Hits loss: mean {}, sum {}".format(weight_loss, hits_loss.mean(), hits_loss.sum()))
 
-        #return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
+        #  return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
         return hits_loss  #  + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
 
     def loss_not_vec(self, y, conditions):
@@ -987,7 +988,7 @@ class FullSHiPModel(SHiPModel):
         left_margin = 2.6  # in m
         right_margin = 3  # in m
         y_margin = 5  # in m
-        y = y  # convert cm to m
+        y = y / 100 # convert cm to m
         print("inside loss kinematics example value: {}".format(conditions[0, self._psi_dim:]))
         pid_mask = (conditions[:, -1] == MUON) & (torch.abs(y[:, 1]) < y_margin)
         x_plus = y[pid_mask, 0]
@@ -1259,7 +1260,7 @@ class BernoulliModel(YModel):
                  x_range=(-0.1, 0.1),
                  x_dim=1,
                  y_dim=1,
-                 loss=lambda y: (y - 0.499).pow(2).mean(dim=1)):
+                 loss=lambda y, **kwargs: (y - 0.499).pow(2).mean(dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=x_dim, y_dim=y_dim)

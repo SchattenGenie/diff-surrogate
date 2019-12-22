@@ -112,6 +112,7 @@ def smooth(x, window_len=11, window='hanning'):
 #         for count in range(self.extract(metric_dict, metric_name)):
 #             self.log_metric(metric_dict, metric_name)
 
+
 class FuncSaver(object):
     def __init__(self, experiment):
         self.lock = Lock()
@@ -121,16 +122,16 @@ class FuncSaver(object):
 
     def insert(self, epoch_index, func_value):
         with self.lock:
-            self.results.append((epoch_index, func_value[-1]))
+            self.results.append((epoch_index, func_value.mean()))
 
     def test(self):
         time.sleep(5.)
         return "!S!"
 
-    def submit_job(self, current_psi, func, epoch):
-        thread = Thread(target=lambda index, psi, rep: self.insert(
-                            *(index, func(psi, num_repetitions=rep).detach().cpu().numpy())),
-                            args=(epoch, current_psi, 485879)
+    def submit_job(self, current_psi, func, epoch, num_repetitions=485879):
+        thread = Thread(target=lambda index, psi, num_repetitions: self.insert(
+                            *(index, func(psi, num_repetitions=num_repetitions).detach().cpu().numpy())),
+                            args=(epoch, current_psi, num_repetitions)
                         )
         thread.start()
         self.threads_queue.append(thread)
@@ -147,6 +148,7 @@ class FuncSaver(object):
         while self.threads_queue:
             self.threads_queue.pop().join()
         self.update()
+
 
 class BaseLogger(ABC):
     def __init__(self):
@@ -534,7 +536,7 @@ class CometLogger(SimpleLogger):
     def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
-        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch)
+        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch, n_samples)
         self.func_saver.update()
         #self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1][-1], step=self._epoch)
         self._experiment.log_metric('Used samples', self._perfomance_logs['n_samples'][-1], step=self._epoch)
