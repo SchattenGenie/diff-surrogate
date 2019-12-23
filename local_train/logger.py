@@ -536,7 +536,7 @@ class CometLogger(SimpleLogger):
     def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
-        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch, n_samples)
+        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch)
         self.func_saver.update()
         #self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1][-1], step=self._epoch)
         self._experiment.log_metric('Used samples', self._perfomance_logs['n_samples'][-1], step=self._epoch)
@@ -724,6 +724,39 @@ class CometLogger(SimpleLogger):
         plt.hist(gen_data[:, -1])
         self._experiment.log_figure("oracle_samples_{}".format(self._epoch), f)
         plt.close(f)
+
+    def log_ship_samples(self, oracle, y_sampler, current_psi, train_y, n_samples=100000):
+        with torch.no_grad():
+            psi_current_clone = current_psi.detach().clone()
+            x_gen = y_sampler.sample_x(n_samples).to(current_psi.device)
+            conditions = torch.cat([
+                psi_current_clone.repeat(n_samples, 1),
+                x_gen
+            ], dim=1)
+            y_gen = oracle.generate(conditions).detach().cpu().numpy()
+
+
+        f = plt.figure(figsize=(16, 6))
+        plt.subplot(1, 2, 1)
+        plt.hist2d(train_y[:, 0].cpu().numpy(), train_y[:, 1].cpu().numpy(),
+                   cmap=my_cmap, bins=100, cmin=1e-10, range=((-260, 260), (-500, 500)));
+        plt.xlabel(f"x, cm", fontsize=19)
+        plt.ylabel(f"y, cm", fontsize=19)
+        plt.title("FairShip: {}".format(len(train_y)), fontsize=15)
+        plt.gca().tick_params(axis="both", labelsize=15)
+        cbar = plt.colorbar()
+        cbar.ax.tick_params(labelsize=15)
+
+        plt.subplot(1, 2, 2)
+        plt.hist2d(y_gen[:, 0], y_gen[:, 1],
+                   cmap=my_cmap, bins=100, cmin=1e-10, range=((-260, 260), (-500, 500)));
+        plt.xlabel(f"x, cm", fontsize=19)
+        plt.ylabel(f"y, cm", fontsize=19)
+        plt.title("L-GSO: {}".format(len(y_gen)), fontsize=15)
+        plt.gca().tick_params(axis="both", labelsize=15)
+        cbar = plt.colorbar()
+        cbar.ax.tick_params(labelsize=15)
+        self._experiment.log_figure("samples_{}".format(self._epoch), f)
 
 
 class GANLogger(object):

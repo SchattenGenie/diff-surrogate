@@ -109,7 +109,13 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
                 self._y_model.sample_x(len(conditions)).to(self.device)
             ], dim=1)
             y = self.generate(conditions)
-            # loss = self._y_model.loss(y=y)
+            # for name, param in self._generator.named_parameters():
+            #     print(name, param[:, 150:180], param.shape)
+            #     break
+            #print("y ", y.shape)
+            #print("SUM ", torch.sum(y))
+            #return torch.sum(y)
+            #loss = self._y_model.loss(y=y)
             loss = self._y_model.loss(y=y, conditions=conditions)
             if len(condition.size()) == 1:
                 return loss.mean()
