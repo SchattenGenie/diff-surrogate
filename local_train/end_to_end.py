@@ -75,8 +75,8 @@ def end_to_end_training(epochs: int,
                         shift_model: bool = False,
                         finetune_model: bool = False,
                         use_experience_replay: bool =True,
-                        add_box_constraints: bool = False,
-                        experiment = None,
+                        add_box_constraints: bool=False,
+                        experiment=None,
                         use_adaptive_borders=False,
                         use_trust_region=False,
                         scale_psi=False
@@ -108,6 +108,11 @@ def end_to_end_training(epochs: int,
 
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
+
+    if use_trust_region:
+        trust_region = TrustRegion()
+        optimizer_config['lr'] = step_data_gen
+
     optimizer = optimizer_cls(
         oracle=model,
         x=current_psi,
@@ -129,9 +134,6 @@ def end_to_end_training(epochs: int,
             x_dim=model_config['x_dim'],
             device=device
         )
-    if use_trust_region:
-        trust_region = TrustRegion()
-
     logger.log_performance(y_sampler=y_sampler,
                            current_psi=current_psi,
                            n_samples=n_samples)
@@ -236,7 +238,7 @@ def end_to_end_training(epochs: int,
             current_psi, step_data_gen = trust_region.step(
                 y_model=y_sampler, model=model,
                 previous_psi=previous_psi, current_psi=current_psi,
-                step=step_data_gen)
+                step=step_data_gen, optimizer_config=optimizer_config, optimizer=optimizer)
             print("New step data gen:", step_data_gen)
 
         try:
