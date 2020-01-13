@@ -723,16 +723,18 @@ class CometLogger(SimpleLogger):
         self._experiment.log_figure("oracle_samples_{}".format(self._epoch), f)
         plt.close(f)
 
-    def log_ship_samples(self, oracle, y_sampler, current_psi, train_y, n_samples=100000):
+    def log_ship_samples(self, oracle, y_sampler, current_psi, train_y, n_samples=100000, batch_size=512):
         with torch.no_grad():
+            y_gen = []
             psi_current_clone = current_psi.detach().clone()
-            x_gen = y_sampler.sample_x(n_samples).to(current_psi.device)
-            conditions = torch.cat([
-                psi_current_clone.repeat(n_samples, 1),
-                x_gen
-            ], dim=1)
-            y_gen = oracle.generate(conditions).detach().cpu().numpy()
-
+            for iterations in range(n_samples // batch_size + 1):
+                x_gen = y_sampler.sample_x(batch_size).to(current_psi.device)
+                conditions = torch.cat([
+                    psi_current_clone.repeat(batch_size, 1),
+                    x_gen
+                ], dim=1)
+                y_gen.append(oracle.generate(conditions).detach().cpu().numpy())
+            y_gen = np.vstack(y_gen)
 
         f = plt.figure(figsize=(16, 6))
         plt.subplot(1, 2, 1)

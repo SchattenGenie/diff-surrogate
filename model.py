@@ -1132,7 +1132,7 @@ class FullSHiPModel(SHiPModel):
 
         # normalization to account a lot of zeros in loss function
         # TODO: is it correct?
-        hits_loss = sum_term * ((sum_term.sum() / sum_term.mean()).item())
+        hits_loss = sum_term * len(sum_term)
         reg_coeff = 5.
 
         print("Weight loss: {}, Hits loss: mean {}, sum {}".format(weight_loss, hits_loss.mean(), hits_loss.sum()))
