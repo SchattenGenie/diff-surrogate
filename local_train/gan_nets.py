@@ -189,9 +189,6 @@ class GANLosses(object):
         elif self.TASK == 'WASSERSTEIN':
             loss = - discrim_output.mean()
         elif self.TASK == "CRAMER":
-            # loss = (torch.norm(discrim_output_real - discrim_output, dim=1) + \
-            #        torch.norm(discrim_output_real - discrim_output_gen_prime, dim=1) - \
-            #        torch.norm(discrim_output - discrim_output_gen_prime, dim=1)).mean()
             loss =   (torch.norm(discrim_output_real - discrim_output_gen_prime, dim=1) -
                       torch.norm(discrim_output_real, dim=1) -
                       torch.norm(discrim_output - discrim_output_gen_prime, dim=1) +
