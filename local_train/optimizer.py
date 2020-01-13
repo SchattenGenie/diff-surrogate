@@ -102,9 +102,11 @@ class BaseOptimizer(ABC):
                 return self._x.detach().clone(), status, self._history
         return self._x.detach().clone(), ITER_ESCEEDED, self._history
 
-    def update(self, oracle: BaseConditionalGenerationOracle, x: torch.Tensor):
+    def update(self, oracle: BaseConditionalGenerationOracle, x: torch.Tensor, step=None):
         self._oracle = oracle
         self._x.data = x.data
+        if step:
+            self._x_step = step
         self._x_init = copy.deepcopy(x)
         self._history = defaultdict(list)
 
@@ -322,6 +324,61 @@ class LBFGSOptimizer(BaseOptimizer):
 
         super()._post_step(init_time=init_time)
         grad_norm = torch.norm(d_k).item()
+        if grad_norm < self._tolerance:
+            return SUCCESS
+        if not (torch.isfinite(x_k).all() and
+                torch.isfinite(f_k).all() and
+                torch.isfinite(d_k).all()):
+            return COMP_ERROR
+
+
+class LBFGSNoisyOptimizer(BaseOptimizer):
+    def __init__(
+            self,
+            oracle: BaseConditionalGenerationOracle,
+            x: torch.Tensor,
+            lr: float = 1e-1,
+            memory_size: int = 20,
+            line_search_options: dict = None,
+            *args, **kwargs
+    ):
+        super().__init__(oracle, x, *args, **kwargs)
+        self._lr = lr
+        self._alpha_k = None
+        if self._x_step:
+            self._optimizer = LBFGS(params=[self._x], lr=self._x_step / 10., history_size=self._memory_size)
+        else:
+            self._optimizer = LBFGS(params=[self._x], lr=self._lr, history_size=self._memory_size)
+
+    def _step(self):
+        x_k = psi_opt.detach().clone()
+        x_k.requires_grad_(True)
+        self._optimizer.param_groups[0]['params'][0] = x_k
+        if self._x_step:
+            self._optimizer.param_groups[0]['lr'] = self._x_step / 10.
+        else:
+            self._optimizer.param_groups[0]['lr'] = self._lr
+
+        init_time = time.time()
+        f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
+        g_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
+
+        # define closure for line search
+        def closure():
+            optimizer.zero_grad()
+            loss = self._oracle.func(psi_opt, num_repetitions=self._num_repetitions)
+            return loss
+
+        # two-loop recursion to compute search direction
+        p = self._optimizer.two_loop_recursion(-g_k)
+        options = {
+            'closure': closure,
+            'current_loss': f_k,
+            'interpolate': True
+        }
+        f_k, d_k, lr, _, _, _, _, _ = optimizer.step(p, g_k, options=options)
+
+        super()._post_step(init_time=init_time)
         if grad_norm < self._tolerance:
             return SUCCESS
         if not (torch.isfinite(x_k).all() and

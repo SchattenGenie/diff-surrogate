@@ -24,9 +24,6 @@ from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
 from adaptive_borders import AdaptiveBorders
 from trust_region import TrustRegion
-REWEIGHT = False
-if REWEIGHT:
-    from hep_ml import reweight
 from base_model import average_block_wise
 from RegressionNN.regression_model import RegressionModel, RegressionRiskModel
 
@@ -58,28 +55,20 @@ def str_to_class(classname: str):
     return getattr(sys.modules[__name__], classname)
 
 
-def end_to_end_training(epochs: int,
-                        model_cls: BaseConditionalGenerationOracle,
-                        optimizer_cls: BaseOptimizer,
-                        optimized_function_cls: BaseConditionalGenerationOracle,
-                        logger: BaseLogger,
-                        model_config: dict,
-                        optimizer_config: dict,
-                        n_samples_per_dim: int,
-                        step_data_gen: float,
-                        n_samples: int,
-                        current_psi: Union[List[float], torch.tensor],
-                        reuse_optimizer: bool = False,
-                        reuse_model: bool = False,
-                        shift_model: bool = False,
-                        finetune_model: bool = False,
-                        use_experience_replay: bool =True,
-                        add_box_constraints: bool=False,
-                        experiment=None,
-                        use_adaptive_borders=False,
-                        use_trust_region=False,
-                        scale_psi=False
-                        ):
+def end_to_end_training(
+        epochs: int,
+        model_cls: BaseConditionalGenerationOracle,
+        optimizer_cls: BaseOptimizer,
+        optimized_function_cls: BaseConditionalGenerationOracle,
+        logger: BaseLogger,
+        model_config: dict,
+        optimizer_config: dict,
+        n_samples_per_dim: int,
+        step_data_gen: float,
+        n_samples: int,
+        current_psi: Union[List[float], torch.tensor],
+        experiment=None
+):
     """
 
     :param epochs: int
@@ -108,9 +97,7 @@ def end_to_end_training(epochs: int,
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
 
-    if use_trust_region:
-        trust_region = TrustRegion()
-        optimizer_config['lr'] = step_data_gen
+    trust_region = TrustRegion()
 
     optimizer = optimizer_cls(
         oracle=model,
@@ -125,130 +112,46 @@ def end_to_end_training(epochs: int,
         device=device
     )
     weights = None
-    if use_adaptive_borders:
-        adaptive_border = AdaptiveBorders(psi_dim=model_config['psi_dim'], step=step_data_gen)
-        exp_replay = ExperienceReplayAdaptive(
-            psi_dim=model_config['psi_dim'],
-            y_dim=model_config['y_dim'],
-            x_dim=model_config['x_dim'],
-            device=device
-        )
-    logger.log_performance(y_sampler=y_sampler,
-                           current_psi=current_psi,
-                           n_samples=n_samples)
+    logger.log_performance(
+        y_sampler=y_sampler,
+        current_psi=current_psi,
+        n_samples=n_samples
+    )
     for epoch in range(epochs):
         # generate new data sample
         # condition
-        if use_adaptive_borders:
-            x, condition, conditions_grid, r_grid = y_sampler.generate_local_data_lhs_normal(
-                n_samples_per_dim=n_samples_per_dim,
-                sigma=adaptive_border.sigma,
-                current_psi=current_psi,
-                n_samples=n_samples)
-            if use_experience_replay:
-                x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, sigma=adaptive_border.sigma)
-                exp_replay.add(y=x, condition=condition)
-                x = torch.cat([x, x_exp_replay], dim=0)
-                condition = torch.cat([condition, condition_exp_replay], dim=0)
-        else:
-            x, condition = y_sampler.generate_local_data_lhs(
-                n_samples_per_dim=n_samples_per_dim,
-                step=step_data_gen,
-                current_psi=current_psi,
-                n_samples=n_samples)
-            if x is None and condition is None:
-                print("Empty training set, continue")
-                continue
-        if use_experience_replay:
-                x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
-                exp_replay.add(y=x, condition=condition)
-                x = torch.cat([x, x_exp_replay], dim=0)
-                condition = torch.cat([condition, condition_exp_replay], dim=0)
-        # breaking things
-        if model_config.get("predict_risk", False):
-            condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
-            x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
+        x, condition, conditions_grid, r_grid = y_sampler.generate_local_data_lhs_normal(
+            n_samples_per_dim=n_samples_per_dim,
+            sigma=adaptive_border.sigma,
+            current_psi=current_psi,
+            n_samples=n_samples)
+        exp_replay.add(y=x, condition=condition)
+        x, condition = exp_replay.extract(psi=current_psi, sigma=adaptive_border.sigma)
         print(x.shape, condition.shape)
         print(
             condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
             np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
         )
-
-        ## Scale train set
-        if scale_psi:
-            scale_factor = 10
-            feature_max = condition[:, :model_config['psi_dim']].max(axis=0)[0]
-            y_sampler.scale_factor = scale_factor
-            y_sampler.feature_max = feature_max
-            y_sampler.scale_psi = True
-            print("MAX FEATURES", feature_max)
-            condition[:, :model_config['psi_dim']] /= feature_max * scale_factor
-            current_psi = current_psi / feature_max * scale_factor
-            print(feature_max.shape, current_psi.shape)
-            print("MAX PSI", current_psi)
-
-
-        model.train()
-        if reuse_model:
-            if shift_model:
-                if isinstance(model, ShiftedOracle):
-                    model.set_shift(current_psi.clone().detach())
-                else:
-                    model = ShiftedOracle(oracle=model, shift=current_psi.clone().detach())
-                model.fit(x, condition=condition, weights=weights)
-            else:
-                model.fit(x, condition=condition, weights=weights)
-        else:
-            # if not reusing model
-            # then at each epoch re-initialize and re-fit
-            model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
-            model.fit(x, condition=condition, weights=weights)
-
+        model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
+        model.fit(x, condition=condition, weights=weights)
         model.eval()
-
-        if use_adaptive_borders:
-            adaptive_border.step(model=model, conditions_grid=conditions_grid, r_grid=r_grid)
-
-        if reuse_optimizer:
-            optimizer.update(oracle=model,
-                             x=current_psi)
-        else:
-            # find new psi
-            optimizer = optimizer_cls(oracle=model,
-                                      x=current_psi,
-                                      **optimizer_config)
-
-        if add_box_constraints:
-            box_barriers = make_box_barriers(current_psi, step_data_gen)
-            add_barriers_to_oracle(oracle=model, barriers=box_barriers)
-
-        previous_psi = current_psi.clone()
-        current_psi, status, history = optimizer.optimize()
-        if scale_psi:
-            current_psi, status, history = optimizer.optimize()
-            current_psi = current_psi / scale_factor * feature_max
-            y_sampler.scale_psi = False
-            print("NEW_PSI: ", current_psi)
-
+        optimizer.update(oracle=model, x=current_psi, step=step_data_gen)
+        current_psi, step_data_gen, optimizer, history = trust_region.step(
+            y_model=y_sampler,
+            model=model,
+            previous_psi=current_psi,
+            step=step_data_gen,
+            optimizer_config=optimizer_config,
+            optimizer=optimizer
+        )
+        print("New step data gen:", step_data_gen)
         if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
             current_psi = torch.clamp(current_psi, 1e-5, 1e5)
-
-        if use_trust_region:
-            current_psi, step_data_gen = trust_region.step(
-                y_model=y_sampler, model=model,
-                previous_psi=previous_psi, current_psi=current_psi,
-                step=step_data_gen, optimizer_config=optimizer_config, optimizer=optimizer)
-            print("New step data gen:", step_data_gen)
-
         try:
             # logging optimization, i.e. statistics of psi
-            #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
-            logger.log_performance(y_sampler=y_sampler,
-                                   current_psi=current_psi,
-                                   n_samples=n_samples)
+            # logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
+            logger.log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
             logger.log_optimizer(optimizer)
-            if use_adaptive_borders:
-                adaptive_border.log(experiment)
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):
@@ -264,7 +167,7 @@ def end_to_end_training(epochs: int,
             # raise
         torch.cuda.empty_cache()
     logger.func_saver.join()
-    return
+    return None
 
 
 @click.command()
@@ -282,16 +185,7 @@ def end_to_end_training(epochs: int,
 @click.option('--lr', type=float, default=1e-1)
 @click.option('--step_data_gen', type=float, default=0.1)
 @click.option('--n_samples_per_dim', type=int, default=3000)
-@click.option('--reuse_optimizer', type=bool, default=False)
-@click.option('--reuse_model', type=bool, default=False)
-@click.option('--shift_model', type=bool, default=False)
-@click.option('--finetune_model', type=bool, default=False)
-@click.option('--add_box_constraints', type=bool, default=False)
-@click.option('--use_experience_replay', type=bool, default=True)
-@click.option('--use_adaptive_borders', type=bool, default=False)
-@click.option('--use_trust_region', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
-@click.option('--scale_psi', type=bool, default=False)
 def main(model,
          optimizer,
          logger,
@@ -305,17 +199,8 @@ def main(model,
          n_samples,
          step_data_gen,
          n_samples_per_dim,
-         reuse_optimizer,
-         reuse_model,
-         shift_model,
          lr,
-         finetune_model,
-         use_experience_replay,
-         add_box_constraints,
-         use_adaptive_borders,
-         use_trust_region,
          init_psi,
-         scale_psi
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
@@ -365,16 +250,7 @@ def main(model,
         n_samples_per_dim=n_samples_per_dim,
         step_data_gen=step_data_gen,
         n_samples=n_samples,
-        reuse_optimizer=reuse_optimizer,
-        reuse_model=reuse_model,
-        shift_model=shift_model,
-        finetune_model=finetune_model,
-        add_box_constraints=add_box_constraints,
-        use_experience_replay=use_experience_replay,
-        experiment=experiment,
-        use_adaptive_borders=use_adaptive_borders,
-        use_trust_region=use_trust_region,
-        scale_psi=scale_psi
+        experiment=experiment
     )
 
 
