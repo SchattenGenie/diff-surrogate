@@ -202,13 +202,16 @@ def end_to_end_training(epochs: int,
 
         try:
             # logging optimization, i.e. statistics of psi
-            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=True)
+            #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
+            logger.log_ship_samples(model, y_sampler, current_psi, train_y=x, n_samples=100000)
             logger.log_optimizer(optimizer)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
             experiment.log_metric("used_samples_per_step", used_samples)
             experiment.log_metric("sample_size", len(x))
+            if use_adaptive_borders:
+                adaptive_border.log(experiment)
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):
