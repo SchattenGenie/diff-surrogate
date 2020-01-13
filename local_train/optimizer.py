@@ -24,7 +24,8 @@ from sobol import sobol_generate
 SUCCESS = 'success'
 ITER_ESCEEDED = 'iterations_exceeded'
 COMP_ERROR = 'computational_error'
-SPHERE = True
+SPHERE = False
+CLIP_PARAMS = True
 
 
 class BaseOptimizer(ABC):
@@ -130,7 +131,7 @@ class BaseOptimizer(ABC):
         """
         raise NotImplementedError('_step is not implemented.')
 
-    def _post_step(self, init_time):
+    def _post_step(self, init_time, clip_params=True):
         """
         This function saves stats in history and forces
         :param init_time:
@@ -146,6 +147,9 @@ class BaseOptimizer(ABC):
                     x_corrected = self._x_step * x_corrected / (x_corrected.norm())
                     x_corrected.data = x_corrected.data + self._x_init.data
                     self._x.data = x_corrected.data
+
+        if CLIP_PARAMS:
+            self._x.data = torch.clamp(self._x, 1e-5, 1e5)
 
         self._num_iter += 1
         if self._trace:
