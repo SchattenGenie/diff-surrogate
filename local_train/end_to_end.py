@@ -11,7 +11,7 @@ from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
                   ModelDegenerate, ModelInstrict, Hartmann6, \
-                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict
+                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, BOCKModel
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
 from gmm_model import GMMModel
@@ -169,10 +169,10 @@ def end_to_end_training(epochs: int,
             condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
             x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
         print(x.shape, condition.shape)
-        print(
-            condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
-            np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
-        )
+        # print(
+        #     condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
+        #     np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
+        # )
 
         ## Scale train set
         if scale_psi:
@@ -202,6 +202,7 @@ def end_to_end_training(epochs: int,
             # if not reusing model
             # then at each epoch re-initialize and re-fit
             model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
+            print("y_shape: {}, cond: {}".format(x.shape, condition.shape))
             model.fit(x, condition=condition, weights=weights)
 
         model.eval()
@@ -242,12 +243,11 @@ def end_to_end_training(epochs: int,
 
         try:
             # logging optimization, i.e. statistics of psi
-            #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
-            logger.log_ship_samples(model, y_sampler, current_psi, train_y=x, n_samples=100000)
+            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
+            logger.log_optimizer(optimizer)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
-            logger.log_optimizer(optimizer)
             if use_adaptive_borders:
                 adaptive_border.log(experiment)
             # too long for ship...
