@@ -327,7 +327,7 @@ class BaseLogger(ABC):
         self._perfomance_logs['n_samples'].append(n_samples)
         #self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
-        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel"]:
             self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
         else:
             self._perfomance_logs['psi_grad'].append(np.zeros_like(current_psi.detach().cpu().numpy()))
@@ -536,7 +536,7 @@ class CometLogger(SimpleLogger):
     def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
-        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch)
+        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch, 10000)
         self.func_saver.update()
         #self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1][-1], step=self._epoch)
         self._experiment.log_metric('Used samples', self._perfomance_logs['n_samples'][-1], step=self._epoch)
