@@ -26,6 +26,7 @@ from adaptive_borders import AdaptiveBorders
 from trust_region import TrustRegion
 from base_model import average_block_wise
 from RegressionNN.regression_model import RegressionModel, RegressionRiskModel
+from scipy.stats import chi2
 
 
 def get_freer_gpu():
@@ -63,6 +64,7 @@ def end_to_end_training(
         logger: BaseLogger,
         model_config: dict,
         optimizer_config: dict,
+        trust_region_config: dict,
         n_samples_per_dim: int,
         step_data_gen: float,
         n_samples: int,
@@ -97,7 +99,7 @@ def end_to_end_training(
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
 
-    trust_region = TrustRegion()
+    trust_region = TrustRegion(**trust_region_config)
 
     optimizer = optimizer_cls(
         oracle=model,
@@ -105,6 +107,7 @@ def end_to_end_training(
         **optimizer_config
     )
     print(model_config)
+    psi_dim = model_config['psi_dim']
     exp_replay = ExperienceReplay(
         psi_dim=model_config['psi_dim'],
         y_dim=model_config['y_dim'],
@@ -118,15 +121,21 @@ def end_to_end_training(
         n_samples=n_samples
     )
     for epoch in range(epochs):
-        # generate new data sample
-        # condition
-        x, condition, conditions_grid, r_grid = y_sampler.generate_local_data_lhs_normal(
-            n_samples_per_dim=n_samples_per_dim,
-            sigma=adaptive_border.sigma,
-            current_psi=current_psi,
-            n_samples=n_samples)
+        used_samples = 0
+        x, condition = exp_replay.extract(psi=current_psi, step=step_data_gen)
+        if len(condition) < 10 * n_samples * n_samples_per_dim:
+            # generate new data sample
+            # condition
+            normalized_sigma = torch.tensor(psi_dim * [step_data_gen / np.sqrt(chi2.ppf(0.95, df=psi_dim))])
+            x, condition, conditions_grid, r_grid = y_sampler.generate_local_data_lhs_normal(
+                n_samples_per_dim=n_samples_per_dim,
+                sigma=normalized_sigma,
+                current_psi=current_psi,
+                n_samples=n_samples
+            )
+            used_samples += n_samples
         exp_replay.add(y=x, condition=condition)
-        x, condition = exp_replay.extract(psi=current_psi, sigma=adaptive_border.sigma)
+        x, condition = exp_replay.extract(psi=current_psi, step=step_data_gen)
         print(x.shape, condition.shape)
         print(
             condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
@@ -135,16 +144,16 @@ def end_to_end_training(
         model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
         model.fit(x, condition=condition, weights=weights)
         model.eval()
-        optimizer.update(oracle=model, x=current_psi, step=step_data_gen)
+
         current_psi, step_data_gen, optimizer, history = trust_region.step(
             y_model=y_sampler,
             model=model,
             previous_psi=current_psi,
             step=step_data_gen,
-            optimizer_config=optimizer_config,
             optimizer=optimizer
         )
-        print("New step data gen:", step_data_gen)
+        used_samples += 2
+        print("New step data gen:", step_data_gen, used_samples)
         if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
             current_psi = torch.clamp(current_psi, 1e-5, 1e5)
         try:
@@ -152,6 +161,7 @@ def end_to_end_training(
             # logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
             logger.log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
             logger.log_optimizer(optimizer)
+            # experiment.log_metric('used_samples', used_samples)
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):
@@ -166,7 +176,7 @@ def end_to_end_training(
             print(traceback.format_exc())
             # raise
         torch.cuda.empty_cache()
-    logger.func_saver.join()
+    # logger.func_saver.join()
     return None
 
 
@@ -177,6 +187,7 @@ def end_to_end_training(
 @click.option('--optimized_function', type=str, default='YModel')
 @click.option('--model_config_file', type=str, default='gan_config')
 @click.option('--optimizer_config_file', type=str, default='optimizer_config')
+@click.option('--trust_region_config_file', type=str, default='trust_region_config')
 @click.option('--project_name', type=str, prompt='Enter project name')
 @click.option('--work_space', type=str, prompt='Enter workspace name')
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
@@ -195,6 +206,7 @@ def main(model,
          tags,
          model_config_file,
          optimizer_config_file,
+         trust_region_config_file,
          epochs,
          n_samples,
          step_data_gen,
@@ -204,6 +216,7 @@ def main(model,
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
+    trust_region_config = getattr(__import__(trust_region_config_file), 'model_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
     model_config['psi_dim'] = psi_dim
@@ -246,6 +259,7 @@ def main(model,
         logger=logger,
         model_config=model_config,
         optimizer_config=optimizer_config,
+        trust_region_config=trust_region_config,
         current_psi=init_psi,
         n_samples_per_dim=n_samples_per_dim,
         step_data_gen=step_data_gen,

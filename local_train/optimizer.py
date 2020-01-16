@@ -16,11 +16,13 @@ import time
 import sys
 sys.path.append('../')
 from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
+from lbfgs import LBFGS, FullBatchLBFGS
+
 
 SUCCESS = 'success'
 ITER_ESCEEDED = 'iterations_exceeded'
 COMP_ERROR = 'computational_error'
-SPHERE = False
+SPHERE = True
 
 
 class BaseOptimizer(ABC):
@@ -137,6 +139,9 @@ class BaseOptimizer(ABC):
         self._num_iter += 1
         if self._trace:
             self._update_history(init_time=init_time)
+
+    def update_optimizer(self):
+        pass
 
 
 class GradientDescentOptimizer(BaseOptimizer):
@@ -339,23 +344,23 @@ class LBFGSNoisyOptimizer(BaseOptimizer):
             x: torch.Tensor,
             lr: float = 1e-1,
             memory_size: int = 20,
-            line_search_options: dict = None,
+            line_search='Wolfe',
             *args, **kwargs
     ):
         super().__init__(oracle, x, *args, **kwargs)
         self._lr = lr
         self._alpha_k = None
         if self._x_step:
-            self._optimizer = LBFGS(params=[self._x], lr=self._x_step / 10., history_size=self._memory_size)
+            self._optimizer = LBFGS(params=[self._x], lr=self._x_step / 10., line_search=line_search, history_size=memory_size)
         else:
-            self._optimizer = LBFGS(params=[self._x], lr=self._lr, history_size=self._memory_size)
+            self._optimizer = LBFGS(params=[self._x], lr=self._lr, line_search=line_search, history_size=memory_size)
 
     def _step(self):
-        x_k = psi_opt.detach().clone()
+        x_k = self._x.detach().clone()
         x_k.requires_grad_(True)
         self._optimizer.param_groups[0]['params'][0] = x_k
         if self._x_step:
-            self._optimizer.param_groups[0]['lr'] = self._x_step / 10.
+            self._optimizer.param_groups[0]['lr'] = 1.
         else:
             self._optimizer.param_groups[0]['lr'] = self._lr
 
@@ -365,8 +370,8 @@ class LBFGSNoisyOptimizer(BaseOptimizer):
 
         # define closure for line search
         def closure():
-            optimizer.zero_grad()
-            loss = self._oracle.func(psi_opt, num_repetitions=self._num_repetitions)
+            self._optimizer.zero_grad()
+            loss = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
             return loss
 
         # two-loop recursion to compute search direction
@@ -376,15 +381,23 @@ class LBFGSNoisyOptimizer(BaseOptimizer):
             'current_loss': f_k,
             'interpolate': True
         }
-        f_k, d_k, lr, _, _, _, _, _ = optimizer.step(p, g_k, options=options)
+        f_k, d_k, lr, _, _, _, _, _ = self._optimizer.step(p, g_k, options=options)
+        self._saved_grad = lr * (g_k / g_k.norm())
+        grad_norm = d_k.norm().item()
+        self._x = x_k
 
         super()._post_step(init_time=init_time)
+
+        print(f_k.item(), d_k.detach().cpu().numpy(), x_k.detach().cpu().numpy(), lr)
         if grad_norm < self._tolerance:
             return SUCCESS
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all() and
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
+
+    def update_optimizer(self, **kwargs):
+        self._optimizer.curvature_update(self._saved_grad, eps=0.2, damping=True)
 
 
 class ConjugateGradientsOptimizer(BaseOptimizer):
@@ -729,8 +742,7 @@ class CMAGES(BaseOptimizer):
             return COMP_ERROR
 
 
-"""
-class GPBoTorchOptimizer(BaseOptimizer):
+class BOCKOptimizer(BaseOptimizer):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
@@ -805,7 +817,7 @@ class GPBoTorchOptimizer(BaseOptimizer):
             return COMP_ERROR
 
 
-
+"""
 class GPBOOptimizer(BaseOptimizer):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,

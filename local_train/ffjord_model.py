@@ -133,22 +133,24 @@ class FFJORDModel(BaseConditionalGenerationOracle):
             if early_stopping.early_stop:
                 break
         """
-
+        dataset = dataset_utils.TensorDataset(condition, y)
+        train_loader = torch.utils.data.DataLoader(dataset, batch_size=128000, shuffle=True)
         for epoch in tqdm(range(self._epochs)):
-            optimizer.zero_grad()
-            loss = self.loss(
-                y,  # + torch.randn_like(y) * y.std(dim=0) / 100
-                condition,  #  + torch.randn_like(condition) * condition.std(dim=0) / 100
-                weights=weights
-            )
-            if loss.item() < best_loss:
+            loss_sum = 0.
+            for condition_batch, y_batch in train_loader:
+                condition_batch = condition_batch.to(self.device)
+                y_batch = y_batch.to(self.device)
+                optimizer.zero_grad()
+                loss = self.loss(y_batch, condition_batch)
+                loss.backward()
+                optimizer.step()
+                loss_sum += loss.item()
+            if loss_sum < best_loss:
                 best_params = copy.deepcopy(self._model.state_dict())
-                best_loss = loss.item()
-            early_stopping(loss.item())
+                best_loss = loss_sum
+            early_stopping(loss_sum)
             if early_stopping.early_stop:
                 break
-            loss.backward()
-            optimizer.step()
         self._model.load_state_dict(best_params)
         self.eval()
         self._sample_fn, self._density_fn = get_transforms(self._model)
