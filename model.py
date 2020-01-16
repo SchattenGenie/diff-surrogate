@@ -16,7 +16,12 @@ import requests
 import traceback
 import json
 import time
+import os
 
+
+from tqdm import trange
+from sklearn.preprocessing import StandardScaler
+from sklearn.datasets import fetch_openml
 
 def volume_of_frastrum(half_h, area_1, area_2):
     return 1 / 3. * 2 * half_h * (area_1 + area_2 + torch.sqrt(area_1 * area_2))
@@ -1285,3 +1290,153 @@ class BernoulliModel(YModel):
         psi = self.sample_psi(sample_size)
         x = self.sample_x(sample_size)
         return self._generate(psi, x)
+
+
+class BOCKModel(YModel):
+    class BOCK_MNIST_net(torch.nn.Module):
+        def __init__(self, N_hidden):
+            super().__init__()
+            self.N_hidden = N_hidden
+
+            self.model = torch.nn.Sequential(
+                torch.nn.Linear(784, N_hidden),
+                torch.nn.ReLU(),
+                torch.nn.Linear(N_hidden, 10))
+            self.turn_off_w2_update()
+            self.print_params_with_grad()
+
+        def turn_off_w2_update(self):
+            for name, param in self.model.named_parameters():
+                if name == "2.weight":
+                    param.requires_grad_(False)
+                    print(param.shape)
+
+        def set_param(self, param_value, param_name="2.weight"):
+            for name, param in self.model.named_parameters():
+                if name == param_name:
+                    param.data = param_value.reshape(10, -1)
+
+        def print_params_with_grad(self):
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    print(name)
+
+        def forward(self, X):
+            return self.model(X)
+
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_dim=784, y_dim=10):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Delta(torch.Tensor([0]).to(device))
+        self._psi_dim = len(psi_init)
+        self._device = device
+
+        self.batch_size = 512
+        self.epochs = 50
+        self.create_data()
+
+        bock_net_size = 10
+        self.net = self.BOCK_MNIST_net(bock_net_size).to(device)
+        self.net.set_param(psi_init)
+
+        print("INIT_DONE")
+
+    def net_loss(self, y_pred, y_true):
+        return torch.nn.functional.cross_entropy(y_pred, y_true)
+
+    def create_data(self, use_cache=True, normalise=False, data_path=os.path.expanduser("~/data/sklearn_datasets")):
+        if use_cache and os.path.isfile(os.path.join(data_path, "mnist_x.npy")):
+            X = np.load(os.path.join(data_path, "mnist_x.npy"), allow_pickle=True)
+            y = np.load(os.path.join(data_path, "mnist_y.npy"), allow_pickle=True)
+        else:
+            X, y = fetch_openml('mnist_784', data_home="/mnt/shirobokov/sklearn_datasets", return_X_y=True, cache=True)
+            np.save(os.path.join(data_path,"mnist_x.npy"), X)
+            np.save(os.path.join(data_path,"mnist_y.npy"), y)
+
+        X_train = X[:60000].astype(float)
+        X_test = X[60000:].astype(float)
+
+        self.y_train = torch.tensor(y[:60000].astype(int), dtype=torch.long)
+        self.y_test = torch.tensor(y[60000:].astype(int), dtype=torch.long)
+        if normalise:
+            scaler = StandardScaler()
+            X_train = scaler.fit_transform(X_train)
+            X_test = scaler.transform(X_test)
+        train_dataset = torch.utils.data.TensorDataset(self.y_train.to(self._device),
+                                                       torch.tensor(X_train, dtype=torch.float).to(self._device))
+        self.train_batch_gen = torch.utils.data.DataLoader(train_dataset,
+                                                           batch_size=self.batch_size,
+                                                           shuffle=True)
+
+        test_dataset = torch.utils.data.TensorDataset(self.y_test.to(self._device),
+                                                      torch.tensor(X_test, dtype=torch.float).to(self._device))
+        self.test_batch_gen = torch.utils.data.DataLoader(test_dataset,
+                                                          batch_size=self.batch_size,
+                                                          shuffle=False)
+        self.X_test = torch.tensor(X_test, dtype=torch.float).to(self._device)
+
+    def train_net(self):
+        optimizer = torch.optim.Adam(self.net.parameters())
+        for epoch in trange(self.epochs):
+            epoch_loss = 0
+            for y_batch, X_batch in self.train_batch_gen:
+                y_pred = self.net(X_batch)
+                loss = self.net_loss(y_pred, y_batch)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
+        print("Train Loss in the end: {}".format(epoch_loss))
+
+        y_score = []
+        with torch.no_grad():
+            for y_batch, X_batch in self.test_batch_gen:
+                logits = self.net(X_batch)
+                y_pred = logits.detach().cpu()
+                y_score.append(y_pred)
+        print("Test Loss in the end: {}".format(self.net_loss(torch.cat(y_score), torch.tensor(self.y_test))))
+
+    def loss(self, y):
+        return self.net_loss(y, self.y_test.to(y.device))
+
+    def _generate_dist(self, psi, x):
+        raise NotImplementedError
+
+    def _generate(self, psi, x):
+        # TODO: ITS not yet implemented in case we have a lot of different psi vectors in the input
+
+        self.net.set_param(psi[:1, :])
+        self.train_net()
+
+        y_score = []
+        with torch.no_grad():
+            for y_batch, X_batch in self.test_batch_gen:
+                logits = self.net(X_batch)
+                y_pred = logits.detach().cpu()
+                y_score.append(y_pred)
+        return torch.cat(y_score)
+
+    def sample_x(self, sample_size):
+        return self.X_test.repeat((sample_size // len(self.X_test), 1))
+
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+
+
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+
+        if n_samples == 0:
+            mus = torch.zeros(0, len(current_psi)).float().to(self.device)
+        else:
+            mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
+        mus = step * (mus * 2 - 1) + current_psi
+        mus = torch.cat([mus, current_psi.view(1, -1)])
+        data_list = []
+        for mu in mus:
+            data_list.append(self._generate(mu.reshape(1, -1), None))
+        data = torch.cat(data_list).to(self.device)
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        return data, torch.cat([mus, xs], dim=1)
