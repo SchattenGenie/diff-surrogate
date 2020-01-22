@@ -270,8 +270,88 @@ def generate_covariance(n=100, a=2):
     C = D_half * A * D_half
     return np.array(C)
 
+class GaussianMixtureHumpModelDegenerate(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=torch.Tensor(((-2, 0), (2, 5))),
+                 x_dim=2, y_dim=1,
+                 loss = lambda y, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+        torch.manual_seed(1337)
+        np.random.seed(1337)
+        mixing_covar, _ = np.linalg.qr(np.random.randn(self._psi_dim, 2))
+        np.random.seed()
+        torch.manual_seed(np.random.get_state()[1][-1])
+        self._mixing_covariance = torch.tensor(mixing_covar).float().to(self._device)
 
-class RosenbrockModelDegenerate(YModel):
+    def _generate_dist(self, psi, x):
+        return self.mixture_model(psi, x)
+
+    def _generate(self, psi, x):
+        psi = torch.mm(psi, self._mixing_covariance)
+        return pyro.sample('y', self._generate_dist(psi, x))
+
+    def mixture_model(self, psi, x, K=2):
+        locs = pyro.sample('locs', dist.Normal(x * self.three_hump(psi).view(-1, 1), 1.)).to(self.device)
+        #scales = pyro.sample('scale', dist.LogNormal(0., 2), torch.Size([len(x)])).view(-1, 1).to(self.device)
+        assignment = pyro.sample('assignment', dist.Categorical(torch.abs(psi)))
+        return dist.Normal(locs.gather(1, assignment.unsqueeze(1)), 1)
+
+    # Three hump function http://benchmarkfcns.xyz/2-dimensional
+    def three_hump(self, y):
+        return 2 * y[:, 0] ** 2 - 1.05 * y[:, 0] ** 4 + y[:, 0] ** 6 / 6 + y[:,0] * y[:,1] + y[:, 1] ** 2
+
+
+class GaussianMixtureHumpModelDeepDegenerate(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range=torch.Tensor(((-2, 0), (2, 5))),
+                 x_dim=2, y_dim=1,
+                 loss = lambda y, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        torch.manual_seed(1337)
+        self._deep_embedder = nn.Sequential(
+            nn.Linear(self._psi_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 32),  # TODO: add dropout?
+            nn.Tanh(),
+            nn.Tanh(32, 2),
+        ).to(self._device)
+        torch.manual_seed(np.random.get_state()[1][-1])
+        self._device = device
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        return self.mixture_model(psi, x)
+
+    def _generate(self, psi, x):
+        deep_psi = self._deep_embedder(psi)
+        return pyro.sample('y', self._generate_dist(deep_psi, x))
+
+    def mixture_model(self, psi, x, K=2):
+        locs = pyro.sample('locs', dist.Normal(x * self.three_hump(psi).view(-1, 1), 1.)).to(self.device)
+        #scales = pyro.sample('scale', dist.LogNormal(0., 2), torch.Size([len(x)])).view(-1, 1).to(self.device)
+        assignment = pyro.sample('assignment', dist.Categorical(torch.abs(psi)))
+        return dist.Normal(locs.gather(1, assignment.unsqueeze(1)), 1)
+
+    # Three hump function http://benchmarkfcns.xyz/2-dimensional
+    def three_hump(self, y):
+        return 2 * y[:, 0] ** 2 - 1.05 * y[:, 0] ** 4 + y[:, 0] ** 6 / 6 + y[:,0] * y[:,1] + y[:, 1] ** 2
+
+
+class RosenbrockModelDeepDegenerate(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
@@ -284,26 +364,59 @@ class RosenbrockModelDegenerate(YModel):
         self._psi_dim = len(psi_init)
         self._device = device
         torch.manual_seed(1337)
-        # self._mixing_matrix = torch.tensor(scipy.linalg.hilbert(self._psi_dim)[:, :2]).float().to(self._device)
-        self._mixing_matrix = torch.randn(self._psi_dim, 500).float().to(self._device)
-        # self._mixing_covariance = torch.randn(self._psi_dim, self._psi_dim).float().to(self._device)
-        self._mixing_covariance = torch.tensor(np.linalg.cholesky(generate_covariance(n=self._psi_dim))).float().to(self._device)
-        torch.seed()
+        self._deep_embedder = nn.Sequential(
+            nn.Linear(self._psi_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 32),  # TODO: add dropout?
+            nn.Tanh(),
+            nn.Tanh(32, 10),
+        ).to(self._device)
+        torch.manual_seed(np.random.get_state()[1][-1])
         self.loss = loss
 
     def _generate_dist(self, psi, x):
         latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
-
-        psi_z = dist.Normal(torch.zeros_like(psi), torch.ones_like(psi) / 100.).sample()
-        psi = torch.mm(psi_z, self._mixing_covariance) + psi
-        # psi = torch.mm(psi, self._mixing_matrix)
-        latent_psi = self.g(psi)
+        deep_psi = self._deep_embedder(psi)
+        latent_psi = self.g(deep_psi)
         return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
 
     @staticmethod
     def g(x):
         return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+
+class RosenbrockModelDegenerate(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1)  # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        torch.manual_seed(1337)
+        np.random.seed(1337)
+        mixing_covar, _ = np.linalg.qr(np.random.randn(self._psi_dim, 10))
+        np.random.seed()
+        self._mixing_covariance = torch.tensor(mixing_covar).float().to(self._device)
+        torch.manual_seed(np.random.get_state()[1][-1])
+        self.loss = loss
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+        psi = torch.mm(psi, self._mixing_covariance)
+        latent_psi = self.g(psi)
+        return dist.Normal(latent_x + latent_psi, self.std_val(latent_x))
+
+    @staticmethod
+    def g(x):
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1,
+                                                                                                   keepdim=True)
 
 
 class ModelDegenerate(YModel):
