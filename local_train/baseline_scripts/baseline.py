@@ -5,8 +5,8 @@ import click
 import torch
 import numpy as np
 from typing import Callable
-sys.path.append('../')
 from typing import List, Union
+sys.path.append('../')
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
@@ -69,7 +69,10 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
         return self._y_model.device
 
     def func(self, condition, **kwargs):
-        condition = torch.tensor(condition).float()
+        if isinstance(condition, torch.Tensor):
+            condition = condition.clone().detach().float()
+        else:
+            condition = torch.tensor(condition).float()
         self._n_calls += 1
         return self._y_model.func(condition, num_repetitions=self._num_repetitions)
 
