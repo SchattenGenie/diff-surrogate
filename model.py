@@ -4,6 +4,7 @@ import numpy as np
 from pyro import distributions as dist
 from local_train.base_model import BaseConditionalGenerationOracle
 import torch.nn.functional as F
+import torch.nn as nn
 from scipy.stats import norm
 from pyro import poutine
 import matplotlib.pyplot as plt
@@ -327,8 +328,8 @@ class GaussianMixtureHumpModelDeepDegenerate(YModel):
             nn.Tanh(),
             nn.Linear(64, 32),  # TODO: add dropout?
             nn.Tanh(),
-            nn.Tanh(32, 2),
-        ).to(self._device)
+            nn.Linear(32, 2),
+        ).to(device)
         torch.manual_seed(np.random.get_state()[1][-1])
         self._device = device
         self.loss = loss
@@ -369,7 +370,7 @@ class RosenbrockModelDeepDegenerate(YModel):
             nn.Tanh(),
             nn.Linear(64, 32),  # TODO: add dropout?
             nn.Tanh(),
-            nn.Tanh(32, 10),
+            nn.Linear(32, 10),
         ).to(self._device)
         torch.manual_seed(np.random.get_state()[1][-1])
         self.loss = loss
