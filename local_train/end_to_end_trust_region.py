@@ -152,7 +152,8 @@ def end_to_end_training(
             step=step_data_gen,
             optimizer=optimizer
         )
-        used_samples += 2
+        exp_replay.add(y=history['y'], condition=history['X'])
+        used_samples += history['used_samples']
         print("New step data gen:", step_data_gen, used_samples)
         if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
             current_psi = torch.clamp(current_psi, 1e-5, 1e5)
