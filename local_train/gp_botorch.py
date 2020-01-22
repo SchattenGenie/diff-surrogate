@@ -3,14 +3,25 @@ code partially taken from
 https://github.com/bayesgroup/deepbayes-2019/blob/master/seminars/day4/gp/BayesOpt/bayesopt_solution.ipynb
 """
 import torch
+import gpytorch
+import botorch
 from botorch.models import HeteroskedasticSingleTaskGP
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from botorch.fit import fit_gpytorch_model
 from botorch.optim import joint_optimize, sequential_optimize
 from botorch.acquisition import ExpectedImprovement
+from botorch.models.gpytorch import GPyTorchModel
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.means import ConstantMean
+from gpytorch.distributions import MultivariateNormal
+from botorch.models import SingleTaskGP, FixedNoiseGP
+from gpytorch.kernels import CylindricalKernel, MaternKernel, ScaleKernel
+from botorch.optim.fit import fit_gpytorch_torch
+import traceback
+import numpy as np
 
 
-def initialize_model(X, y, GP=None, state_dict=None, *GP_args, **GP_kwargs):
+def initialize_model(X, y, GP, noise, bounds, state_dict=None, *GP_args, **GP_kwargs):
     """
     Create GP model and fit it. The function also accepts
     state_dict which is used as an initialization for the GP model.
@@ -36,20 +47,23 @@ def initialize_model(X, y, GP=None, state_dict=None, *GP_args, **GP_kwargs):
 
     gp :
     """
-
-    if GP is None:
-        GP = SingleTaskGP
-
-    model = GP(X, y, *GP_args, **GP_kwargs).to(X)
-
+    model = GP(X, y, noise, bounds, *GP_args, **GP_kwargs).to(X)
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
-    # load state dict if it is passed
     if state_dict is not None:
         model.load_state_dict(state_dict)
     return mll, model
 
 
-def bo_step(X, y, objective, bounds, GP=None, acquisition=None, q=1, state_dict=None, plot=False):
+def bo_step(X,
+            y,
+            noise,
+            objective,
+            bounds,
+            GP=None,
+            acquisition=None,
+            q=1,
+            state_dict=None,
+            plot=False):
     """
     One iteration of Bayesian optimization:
         1. Fit GP model using (X, y)
@@ -100,39 +114,108 @@ def bo_step(X, y, objective, bounds, GP=None, acquisition=None, q=1, state_dict=
 
     gp : botorch.models.Model
         Constructed GP model
-
-
-    Example
-    -------
-    >>> from botorch.models import FixedNoiseGP
-    >>> noise_var = 1e-2 * torch.ones_like(y)
-    >>> GP = lambda X, y: FixedNoiseGP(X, y, noise_var)
-    >>> acq_func = labmda gp: ExpectedImprovement(gp, y.min(), maximize=False)
-    >>> X, y = bo_step(X, y, objective, GP=GP, Acquisition=acq_func)
-
     """
+    std = y.std()
+    y_normed = y / std
+    noise_normed = noise / std
+    # state_dict = None
+    attempts = 0
+    while attempts < 10:
+        try:
+            # Create GP model
+            mll, gp = initialize_model(X, y_normed, noise=noise_normed, bounds=bounds, GP=GP, state_dict=state_dict)
+            fit_gpytorch_model(mll, optimizer=fit_gpytorch_torch, options={'lr': 0.1})
 
-    ### Your code goes here ###
+            # Create acquisition function
+            acquisition_ = acquisition(gp, y_normed)
 
-    # Create GP model
-    mll, gp = initialize_model(X, y, GP=GP, state_dict=state_dict)
-    fit_gpytorch_model(mll)
+            # Optimize acquisition function
+            candidate = joint_optimize(
+                acquisition_, bounds=bounds, q=q, num_restarts=20, raw_samples=20000,
+            )
+            break
+        except RuntimeError:
+            state_dict = None
+            attempts += 1
+            print("Attempt #{}".format(attempts), traceback.print_exc())
 
-    # Create acquisition function
-    acquisition = acquisition(gp)
-
-    # Optimize acquisition function
-    candidate = joint_optimize(
-        acquisition, bounds=bounds, q=q, num_restarts=5, raw_samples=1000,
-    )
-
+    # candidate = candidate / 8
     # Update data set
     X = torch.cat([X, candidate])
     y = torch.cat([y, objective(candidate)])
-
-    ### Your code ends here ###
-
     if plot:
         utils.plot_acquisition(acquisition, X, y, candidate)
 
     return X, y, gp
+
+
+def map_box_ball(x, borders):
+    dim = len(borders)
+    # from borders to [-1, 1]^d
+    x = (x - borders.mean(dim=1)) / ((borders[:, 1] - borders[:, 0]) / 2)
+    # from [-1, 1]^d to Ball(0, 1)
+    x = x / np.sqrt(dim)
+    return x
+
+
+def map_ball_box(x, borders):
+    dim = len(borders)
+    # from Ball(0, 1) to [-1, 1]^d
+    x = np.sqrt(dim) * x
+    # from [-1, 1]^d to borders
+    x = x * ((borders[:, 1] - borders[:, 0]) / 2) + borders.mean(dim=1)
+    return x
+
+
+class KumaAlphaPrior(gpytorch.priors.Prior):
+    def __init__(self):
+        super(KumaAlphaPrior, self).__init__()
+        self.log_a_max = np.log(2)
+        pass
+
+    def log_prob(self, x):
+        x = torch.log(x)
+        loc = torch.tensor(0.).to(x)
+        scale = torch.tensor(0.01).to(x)
+        return torch.sum(torch.log(
+            torch.distributions.Normal(loc=loc, scale=scale).log_prob(x).exp() + 0.5 / self.log_a_max
+        ))
+
+
+class KumaBetaPrior(gpytorch.priors.Prior):
+    def __init__(self):
+        super(KumaBetaPrior, self).__init__()
+        self.log_b_max = np.log(2)
+        pass
+
+    def log_prob(self, x):
+        x = torch.log(x)
+        loc = torch.tensor(0.).to(x)
+        scale = torch.tensor(0.01).to(x)
+        return torch.sum(torch.log(
+            torch.distributions.Normal(loc=loc, scale=scale).log_prob(x).exp() + 0.5 / self.log_b_max
+        ))
+
+
+class CustomCylindricalGP(FixedNoiseGP, GPyTorchModel):  # FixedNoiseGP
+    def __init__(self, train_X, train_Y, noise, borders):
+        # squeeze output dim before passing train_Y to ExactGP
+        super().__init__(train_X, train_Y.squeeze(-1), noise.squeeze(-1))
+        self.borders = borders.t()
+        self.mean_module = ConstantMean()
+        self.covar_module = ScaleKernel(CylindricalKernel(
+            num_angular_weights=3,
+            alpha_prior=KumaAlphaPrior(),
+            alpha_constraint=gpytorch.constraints.constraints.Interval(lower_bound=np.exp(-2.), upper_bound=2.),
+            beta_prior=KumaBetaPrior(),
+            beta_constraint=gpytorch.constraints.constraints.Interval(lower_bound=np.exp(-2.), upper_bound=2.),
+            radial_base_kernel=MaternKernel(),
+            # angular_weights_prior=gpytorch.priors.NormalPrior(loc=0., scale=2.)
+        ))
+        self.to(train_X)  # make sure we're on the right device/dtype
+
+    def forward(self, x):
+        x = map_box_ball(x, borders=self.borders)
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return MultivariateNormal(mean_x, covar_x)

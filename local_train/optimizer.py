@@ -17,6 +17,8 @@ import sys
 sys.path.append('../')
 from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
 from lbfgs import LBFGS, FullBatchLBFGS
+import copy
+from scipy.stats import chi2
 
 
 SUCCESS = 'success'
@@ -34,6 +36,7 @@ class BaseOptimizer(ABC):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  x_step: float = np.inf,  # step_data_gen
+                 correct: bool = True,
                  tolerance: torch.Tensor = torch.tensor(1e-4),
                  trace: bool = True,
                  num_repetitions: int = 1000,
@@ -48,6 +51,7 @@ class BaseOptimizer(ABC):
         self._tolerance = tolerance
         self._trace = trace
         self._max_iters = max_iters
+        self._correct = correct
         self._num_repetitions = num_repetitions
         self._num_iter = 0.
         self._alpha_k = 0.
@@ -109,7 +113,7 @@ class BaseOptimizer(ABC):
         self._x.data = x.data
         if step:
             self._x_step = step
-        self._x_init = copy.deepcopy(x)
+        self._x_init = copy.deepcopy(x.detach().clone())
         self._history = defaultdict(list)
 
     @abstractmethod
@@ -126,15 +130,16 @@ class BaseOptimizer(ABC):
         :param init_time:
         :return:
         """
-        if not SPHERE:
-            self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
-        else:
-            # sphere cut
-            x_corrected = self._x.data - self._x_init.data
-            if x_corrected.norm() > self._x_step:
-                x_corrected = self._x_step * x_corrected / (x_corrected.norm())
-                x_corrected.data = x_corrected.data + self._x_init.data
-                self._x.data = x_corrected.data
+        if self._correct:
+            if not SPHERE:
+                self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
+            else:
+                # sphere cut
+                x_corrected = self._x.data - self._x_init.data
+                if x_corrected.norm() > self._x_step:
+                    x_corrected = self._x_step * x_corrected / (x_corrected.norm())
+                    x_corrected.data = x_corrected.data + self._x_init.data
+                    self._x.data = x_corrected.data
 
         self._num_iter += 1
         if self._trace:
@@ -343,13 +348,18 @@ class LBFGSNoisyOptimizer(BaseOptimizer):
             oracle: BaseConditionalGenerationOracle,
             x: torch.Tensor,
             lr: float = 1e-1,
-            memory_size: int = 20,
+            memory_size: int = 5,
             line_search='Wolfe',
+            lr_algo='None',
             *args, **kwargs
     ):
         super().__init__(oracle, x, *args, **kwargs)
+        self._line_search = line_search
         self._lr = lr
         self._alpha_k = None
+        self._lr_algo = lr_algo  # None, grad, dim
+        if not (lr_algo in ["None", "Grad", "Dim"]):
+            ValueError("lr_algo is not right")
         if self._x_step:
             self._optimizer = LBFGS(params=[self._x], lr=self._x_step / 10., line_search=line_search, history_size=memory_size)
         else:
@@ -359,36 +369,51 @@ class LBFGSNoisyOptimizer(BaseOptimizer):
         x_k = self._x.detach().clone()
         x_k.requires_grad_(True)
         self._optimizer.param_groups[0]['params'][0] = x_k
-        if self._x_step:
-            self._optimizer.param_groups[0]['lr'] = 1.
-        else:
-            self._optimizer.param_groups[0]['lr'] = self._lr
-
         init_time = time.time()
         f_k = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
         g_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
+        grad_normed = g_k  # (g_k / g_k.norm())
+        self._state_dict = copy.deepcopy(self._optimizer.state_dict())
 
+        if self._lr_algo == "None":
+            self._optimizer.param_groups[0]['lr'] = self._x_step
+        elif self._lr_algo == "Grad":
+            self._optimizer.param_groups[0]['lr'] = self._x_step / g_k.norm().item()
+        elif self._lr_algo == "Dim":
+            self._optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(g_k)))
         # define closure for line search
         def closure():
             self._optimizer.zero_grad()
             loss = self._oracle.func(x_k, num_repetitions=self._num_repetitions)
             return loss
-
         # two-loop recursion to compute search direction
-        p = self._optimizer.two_loop_recursion(-g_k)
+        p = self._optimizer.two_loop_recursion(-grad_normed)
         options = {
             'closure': closure,
             'current_loss': f_k,
-            'interpolate': True
+            'interpolate': False
         }
-        f_k, d_k, lr, _, _, _, _, _ = self._optimizer.step(p, g_k, options=options)
-        self._saved_grad = lr * (g_k / g_k.norm())
+        if self._line_search == 'Wolfe':
+            lbfg_opt = self._optimizer.step(p, grad_normed, options=options)
+            f_k, d_k, lr = lbfg_opt[0], lbfg_opt[1], lbfg_opt[2]
+        elif self._line_search == 'Armijo':
+            lbfg_opt = self._optimizer.step(p, grad_normed, options=options)
+            f_k, lr = lbfg_opt[0], lbfg_opt[1]
+            d_k = -g_k
+        elif self._line_search == 'None':
+            # self._optimizer.param_groups[0]['lr'] = 1.
+            d_k = -g_k
+            lbfg_opt = self._optimizer.step(p, grad_normed, options=options)
+            lr = lbfg_opt
+        g_k = self._oracle.grad(x_k, num_repetitions=self._num_repetitions)
+        grad_normed = g_k  # (g_k / g_k.norm())
+        self._optimizer.curvature_update(grad_normed, eps=0.2, damping=False)
+        self._lbfg_opt = lbfg_opt
         grad_norm = d_k.norm().item()
         self._x = x_k
 
         super()._post_step(init_time=init_time)
 
-        print(f_k.item(), d_k.detach().cpu().numpy(), x_k.detach().cpu().numpy(), lr)
         if grad_norm < self._tolerance:
             return SUCCESS
         if not (torch.isfinite(x_k).all() and
@@ -396,9 +421,8 @@ class LBFGSNoisyOptimizer(BaseOptimizer):
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
 
-    def update_optimizer(self, **kwargs):
-        self._optimizer.curvature_update(self._saved_grad, eps=0.2, damping=True)
-
+    def reverse_optimizer(self, **kwargs):
+        self._optimizer.load_state_dict(self._state_dict)
 
 class ConjugateGradientsOptimizer(BaseOptimizer):
     def __init__(self,
@@ -478,6 +502,7 @@ class TorchOptimizer(BaseOptimizer):
         self._base_optimizer = getattr(optim, self._torch_model)(
             params=[self._x], lr=lr, **self._optim_params
         )
+        self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
         print(self._base_optimizer)
 
     def _step(self):
@@ -487,6 +512,7 @@ class TorchOptimizer(BaseOptimizer):
         d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
         print("Grad: ", d_k)
         self._x.grad = d_k.detach().clone()
+        self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
         self._base_optimizer.step()
         print("PSI", self._x)
         super()._post_step(init_time)
@@ -496,6 +522,9 @@ class TorchOptimizer(BaseOptimizer):
         if not (torch.isfinite(self._x).all() and
                 torch.isfinite(d_k).all()):
             return COMP_ERROR
+
+    def reverse_optimizer(self, **kwargs):
+        self._base_optimizer.load_state_dict(self._state_dict)
 
 
 class GPOptimizer(BaseOptimizer):
@@ -742,11 +771,13 @@ class CMAGES(BaseOptimizer):
             return COMP_ERROR
 
 
+import sobol_seq
 class BOCKOptimizer(BaseOptimizer):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  lr: float = 1.,
+                 num_init: int = 20,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._x.requires_grad_(True)
@@ -760,19 +791,41 @@ class BOCKOptimizer(BaseOptimizer):
         for xi in x.detach().cpu().numpy():
             borders.append((xi - x_step, xi + x_step))
         self._borders = torch.tensor(borders).float().to(self._x).t()
-
+        borders = self._borders.t()
+        x_tmp = torch.tensor(sobol_seq.i4_sobol_generate(len(self._x), num_init)).float()
+        x_tmp = x_tmp * (borders[:, 1] - borders[:, 0]) + borders[:, 0]
         self._X_dataset = torch.zeros(0, len(self._x)).to(self._x)
         self._y_dataset = torch.zeros(0).to(self._x)
+        self._y_noise = torch.zeros(0).to(self._x)
 
         self._X_dataset = torch.cat(
-            [self._X_dataset, self._x.detach().view(-1, len(self._x))],
+            [
+                self._X_dataset,
+                self._x.detach().view(-1, len(self._x)),
+                x_tmp.to(x).detach().view(-1, len(self._x))
+            ],
             dim=0
         )
+        func_x_, _ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
+        func_x_ = self._oracle._y_model.loss(func_x_)
+        func_x_t = [
+            self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t)[0]
+            for x_t in x_tmp
+        ]
+        func_x_t = [ self._oracle._y_model.loss(func_x_t_) for func_x_t_ in func_x_t]
         self._y_dataset = torch.cat(
-            [self._y_dataset, self._oracle.func(self._x, num_repetitions=self._num_repetitions).view(1)]
+            [
+                self._y_dataset,
+                func_x_.mean().view(1)
+            ] + [func_x_t_.mean().view(1) for func_x_t_ in func_x_t]
+        )
+        self._y_noise = torch.cat(
+            [
+                self._y_noise,
+                func_x_.std().view(1) / np.sqrt(len(func_x_))
+            ] + [func_x_t_.std().view(1) / np.sqrt(len(func_x_t_)) for func_x_t_ in func_x_t]
         )
         self._state_dict = None
-
 
     def bound_x(self, x):
         x_new = []
@@ -785,33 +838,35 @@ class BOCKOptimizer(BaseOptimizer):
         return x_new
 
     def _step(self):
-        from gp_botorch import HeteroskedasticSingleTaskGP, ExpectedImprovement, bo_step
+        from gp_botorch import SingleTaskGP, ExpectedImprovement, bo_step, CustomCylindricalGP
         init_time = time.time()
-
         print(self._X_dataset.shape, self._y_dataset.shape)
-        noise_var = 1e-1 * torch.ones_like(self._y_dataset)
-        GP = lambda X, y: HeteroskedasticSingleTaskGP(X, y, noise_var)
-        acquisition = lambda gp: ExpectedImprovement(gp, self._y_dataset.min(), maximize=False)
-        objective = lambda x: self._oracle.func(x, num_repetitions=self._num_repetitions)
-        X, y, gp = bo_step(self._X_dataset,
-                           self._y_dataset,
-                           objective=objective,
-                           bounds=self._borders,
-                           GP=GP,
-                           acquisition=acquisition,
-                           q=1,
-                           state_dict=self._state_dict)
+        GP = lambda X, y, noise, borders: CustomCylindricalGP(X, y, noise, borders)
+        acquisition = lambda gp, y: ExpectedImprovement(gp, y.min(), maximize=False)
+        objective = lambda x: self._oracle._y_model.func(x, num_repetitions=self._num_repetitions)  # .view(-1, 1)
+        print("_y_dataset", self._y_dataset[-1], self._X_dataset[-1], self._y_noise[-1])
+        X, y, gp = bo_step(
+            self._X_dataset,
+            self._y_dataset,
+            noise=self._y_noise,
+            objective=objective,
+            bounds=self._borders,
+            GP=GP,
+            acquisition=acquisition,
+            q=1,
+            state_dict=self._state_dict
+        )
         self._state_dict = gp.state_dict()
+        print(self._state_dict)
         self._X_dataset = X
         self._y_dataset = y
-        f_k = self._y_dataset[-1]
+        f_k = self._y_dataset[-1]  # or best?
         x_k = self._X_dataset[-1]
-
-        print(x_k, f_k)
-
+        func_x_, _ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
+        func_x_ = self._oracle._y_model.loss(func_x_)
+        self._y_noise = torch.cat([self._y_noise, func_x_.std().view(1) / np.sqrt(len(func_x_))])
         self._x = self._X_dataset[self._y_dataset.argmin()].clone().detach()
         super()._post_step(init_time)
-
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all()):
             return COMP_ERROR
