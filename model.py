@@ -140,10 +140,15 @@ class YModel(BaseConditionalGenerationOracle):
     def make_condition_sample(self, data):
         self.condition_sample = poutine.condition(self.sample, data=data)
 
-    def generate_local_data(self, n_samples_per_dim, step, current_psi, x_dim=1, std=0.1):
-        xs = self.x_dist.sample(
-            torch.Size([n_samples_per_dim * 2 * current_psi.shape[1] + n_samples_per_dim, x_dim])).to(self.device)
+    def generate_data_at_point(self, n_samples_per_dim, current_psi):
+        xs = self.sample_x(n_samples_per_dim)
+        mus = current_psi.repeat(n_samples_per_dim, 1).clone().detach()
+        self.make_condition_sample({'mu': mus, 'x': xs})
+        data = self.condition_sample(1).detach().to(self.device)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
 
+    def generate_local_data(self, n_samples_per_dim, step, current_psi, std=0.1):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
         mus = torch.empty((xs.shape[0], current_psi.shape[1])).to(self.device)
 
         iterator = 0
@@ -162,7 +167,7 @@ class YModel(BaseConditionalGenerationOracle):
 
         self.make_condition_sample({'mu': mus, 'x': xs})
         data = self.condition_sample().detach().to(self.device)
-        return data.reshape(-1, 1), torch.cat([mus, xs], dim=1)
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
 
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
         xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
