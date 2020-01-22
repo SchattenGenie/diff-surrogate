@@ -11,7 +11,9 @@ from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
                   ModelDegenerate, ModelInstrict, Hartmann6, \
-                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, BOCKModel
+                  RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, BOCKModel, \
+                  RosenbrockModelDeepDegenerate, GaussianMixtureHumpModelDeepDegenerate, \
+                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
 from gmm_model import GMMModel
@@ -76,8 +78,6 @@ def end_to_end_training(epochs: int,
                         use_experience_replay: bool =True,
                         add_box_constraints: bool=False,
                         experiment=None,
-                        use_adaptive_borders=False,
-                        use_trust_region=False,
                         scale_psi=False
                         ):
     """
@@ -108,10 +108,6 @@ def end_to_end_training(epochs: int,
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
 
-    if use_trust_region:
-        trust_region = TrustRegion()
-        optimizer_config['lr'] = step_data_gen
-
     optimizer = optimizer_cls(
         oracle=model,
         x=current_psi,
@@ -125,40 +121,21 @@ def end_to_end_training(epochs: int,
         device=device
     )
     weights = None
-    if use_adaptive_borders:
-        adaptive_border = AdaptiveBorders(psi_dim=model_config['psi_dim'], step=step_data_gen)
-        exp_replay = ExperienceReplayAdaptive(
-            psi_dim=model_config['psi_dim'],
-            y_dim=model_config['y_dim'],
-            x_dim=model_config['x_dim'],
-            device=device
-        )
+
     logger.log_performance(y_sampler=y_sampler,
                            current_psi=current_psi,
                            n_samples=n_samples)
     for epoch in range(epochs):
         # generate new data sample
         # condition
-        if use_adaptive_borders:
-            x, condition, conditions_grid, r_grid = y_sampler.generate_local_data_lhs_normal(
-                n_samples_per_dim=n_samples_per_dim,
-                sigma=adaptive_border.sigma,
-                current_psi=current_psi,
-                n_samples=n_samples)
-            if use_experience_replay:
-                x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, sigma=adaptive_border.sigma)
-                exp_replay.add(y=x, condition=condition)
-                x = torch.cat([x, x_exp_replay], dim=0)
-                condition = torch.cat([condition, condition_exp_replay], dim=0)
-        else:
-            x, condition = y_sampler.generate_local_data_lhs(
-                n_samples_per_dim=n_samples_per_dim,
-                step=step_data_gen,
-                current_psi=current_psi,
-                n_samples=n_samples)
-            if x is None and condition is None:
-                print("Empty training set, continue")
-                continue
+        x, condition = y_sampler.generate_local_data_lhs(
+            n_samples_per_dim=n_samples_per_dim,
+            step=step_data_gen,
+            current_psi=current_psi,
+            n_samples=n_samples)
+        if x is None and condition is None:
+            print("Empty training set, continue")
+            continue
         if use_experience_replay:
                 x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
                 exp_replay.add(y=x, condition=condition)
@@ -169,11 +146,6 @@ def end_to_end_training(epochs: int,
             condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
             x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
         print(x.shape, condition.shape)
-        # print(
-        #     condition[:, :model_config['psi_dim']].std(dim=0).detach().cpu().numpy(),
-        #     np.percentile(condition[:, :model_config['psi_dim']].detach().cpu().numpy(), q=[5, 95], axis=0)
-        # )
-
         ## Scale train set
         if scale_psi:
             scale_factor = 10
@@ -186,7 +158,6 @@ def end_to_end_training(epochs: int,
             current_psi = current_psi / feature_max * scale_factor
             print(feature_max.shape, current_psi.shape)
             print("MAX PSI", current_psi)
-
 
         model.train()
         if reuse_model:
@@ -206,9 +177,6 @@ def end_to_end_training(epochs: int,
             model.fit(x, condition=condition, weights=weights)
 
         model.eval()
-
-        if use_adaptive_borders:
-            adaptive_border.step(model=model, conditions_grid=conditions_grid, r_grid=r_grid)
 
         if reuse_optimizer:
             optimizer.update(oracle=model,
@@ -234,13 +202,6 @@ def end_to_end_training(epochs: int,
         if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
             current_psi = torch.clamp(current_psi, 1e-5, 1e5)
 
-        if use_trust_region:
-            current_psi, step_data_gen = trust_region.step(
-                y_model=y_sampler, model=model,
-                previous_psi=previous_psi, current_psi=current_psi,
-                step=step_data_gen, optimizer_config=optimizer_config, optimizer=optimizer)
-            print("New step data gen:", step_data_gen)
-
         try:
             # logging optimization, i.e. statistics of psi
             logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
@@ -248,8 +209,6 @@ def end_to_end_training(epochs: int,
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
-            if use_adaptive_borders:
-                adaptive_border.log(experiment)
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):
@@ -289,8 +248,6 @@ def end_to_end_training(epochs: int,
 @click.option('--finetune_model', type=bool, default=False)
 @click.option('--add_box_constraints', type=bool, default=False)
 @click.option('--use_experience_replay', type=bool, default=True)
-@click.option('--use_adaptive_borders', type=bool, default=False)
-@click.option('--use_trust_region', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
 @click.option('--scale_psi', type=bool, default=False)
 def main(model,
@@ -313,8 +270,6 @@ def main(model,
          finetune_model,
          use_experience_replay,
          add_box_constraints,
-         use_adaptive_borders,
-         use_trust_region,
          init_psi,
          scale_psi
          ):
@@ -373,8 +328,6 @@ def main(model,
         add_box_constraints=add_box_constraints,
         use_experience_replay=use_experience_replay,
         experiment=experiment,
-        use_adaptive_borders=use_adaptive_borders,
-        use_trust_region=use_trust_region,
         scale_psi=scale_psi
     )
 

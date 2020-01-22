@@ -1,6 +1,7 @@
 from scipy.stats import ks_2samp, skew
 import torch
 
+
 class Metrics(object):
     def __init__(self, bins_range, n_bins):
         self.bins_range = bins_range
