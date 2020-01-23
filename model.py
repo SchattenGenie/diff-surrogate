@@ -285,11 +285,11 @@ def init_orthogonal_embedder(psi_dim, out_dim, seed=1337):
         nn.Linear(16, out_dim, bias=False),
     )
     ortho_matrix_1 = generate_orthogonal_matrix_embedder(psi_dim, 16, seed=seed + 1)
-    lin_1 = list(deep_embedder[-1].parameters())[0]
-    lin_1.data = torch.tensor(ortho_matrix_1).to(lin_1)
+    lin_1 = list(deep_embedder[0].parameters())[0]
+    lin_1.data = torch.tensor(ortho_matrix_1.T).to(lin_1)
     ortho_matrix_2 = generate_orthogonal_matrix_embedder(16, out_dim, seed=seed + 2)
     lin_2 = list(deep_embedder[-1].parameters())[0]
-    lin_2.data = torch.tensor(ortho_matrix_2).to(lin_2)
+    lin_2.data = torch.tensor(ortho_matrix_2.T).to(lin_2)
     return deep_embedder
 
 class GaussianMixtureHumpModelDegenerate(YModel):
