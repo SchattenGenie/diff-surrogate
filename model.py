@@ -271,6 +271,27 @@ def generate_covariance(n=100, a=2):
     C = D_half * A * D_half
     return np.array(C)
 
+
+def generate_orthogonal_matrix_embedder(in_dim, out_dim, seed=1337):
+    assert in_dim > out_dim
+    mixing_covar, _ = np.linalg.qr(np.random.randn(in_dim, out_dim))
+    return mixing_covar
+
+
+def init_orthogonal_embedder(psi_dim, out_dim, seed=1337):
+    deep_embedder = nn.Sequential(
+        nn.Linear(psi_dim, 16, bias=False),
+        nn.Tanh(),
+        nn.Linear(16, out_dim, bias=False),
+    )
+    ortho_matrix_1 = generate_orthogonal_matrix_embedder(psi_dim, 16, seed=seed + 1)
+    lin_1 = list(deep_embedder[-1].parameters())[0]
+    lin_1.data = torch.tensor(ortho_matrix_1).to(lin_1)
+    ortho_matrix_2 = generate_orthogonal_matrix_embedder(16, out_dim, seed=seed + 2)
+    lin_2 = list(deep_embedder[-1].parameters())[0]
+    lin_2.data = torch.tensor(ortho_matrix_2).to(lin_2)
+    return deep_embedder
+
 class GaussianMixtureHumpModelDegenerate(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
@@ -287,6 +308,7 @@ class GaussianMixtureHumpModelDegenerate(YModel):
         self.loss = loss
         torch.manual_seed(1337)
         np.random.seed(1337)
+        assert self._psi_dim > 2
         mixing_covar, _ = np.linalg.qr(np.random.randn(self._psi_dim, 2))
         np.random.seed()
         torch.manual_seed(np.random.get_state()[1][-1])
@@ -323,13 +345,7 @@ class GaussianMixtureHumpModelDeepDegenerate(YModel):
         self._x_dist = dist.Uniform(*x_range)
         self._psi_dim = len(psi_init)
         torch.manual_seed(1337)
-        self._deep_embedder = nn.Sequential(
-            nn.Linear(self._psi_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 32),  # TODO: add dropout?
-            nn.Tanh(),
-            nn.Linear(32, 2),
-        ).to(device)
+        self._deep_embedder = init_orthogonal_embedder(self._psi_dim, 2).to(device)
         torch.manual_seed(np.random.get_state()[1][-1])
         self._device = device
         self.loss = loss
@@ -365,13 +381,7 @@ class RosenbrockModelDeepDegenerate(YModel):
         self._psi_dim = len(psi_init)
         self._device = device
         torch.manual_seed(1337)
-        self._deep_embedder = nn.Sequential(
-            nn.Linear(self._psi_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 32),  # TODO: add dropout?
-            nn.Tanh(),
-            nn.Linear(32, 10),
-        ).to(self._device)
+        self._deep_embedder = init_orthogonal_embedder(self._psi_dim, 10).to(device)
         torch.manual_seed(np.random.get_state()[1][-1])
         self.loss = loss
 
