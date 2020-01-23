@@ -19,6 +19,7 @@ from gpytorch.kernels import CylindricalKernel, MaternKernel, ScaleKernel
 from botorch.optim.fit import fit_gpytorch_torch
 import traceback
 import numpy as np
+USE_SCIPY = False
 
 
 def initialize_model(X, y, GP, noise, bounds, state_dict=None, *GP_args, **GP_kwargs):
@@ -124,7 +125,10 @@ def bo_step(X,
         try:
             # Create GP model
             mll, gp = initialize_model(X, y_normed, noise=noise_normed, bounds=bounds, GP=GP, state_dict=state_dict)
-            fit_gpytorch_model(mll, optimizer=fit_gpytorch_torch, options={'lr': 0.1})
+            if USE_SCIPY:
+                fit_gpytorch_model(mll)
+            else:
+                fit_gpytorch_model(mll, optimizer=fit_gpytorch_torch, options={'lr': 0.1})
 
             # Create acquisition function
             acquisition_ = acquisition(gp, y_normed)
@@ -197,6 +201,16 @@ class KumaBetaPrior(gpytorch.priors.Prior):
         ))
 
 
+class AngularWeightsPrior(gpytorch.priors.Prior):
+    def __init__(self):
+        super(AngularWeightsPrior, self).__init__()
+
+    def log_prob(self, x):
+        x = torch.log(x)
+        loc = torch.tensor(0.).to(x)
+        scale = torch.tensor(2.).to(x)
+        return torch.distributions.Normal(loc=loc, scale=scale).log_prob(x).sum()
+
 class CustomCylindricalGP(FixedNoiseGP, GPyTorchModel):  # FixedNoiseGP
     def __init__(self, train_X, train_Y, noise, borders):
         # squeeze output dim before passing train_Y to ExactGP
@@ -204,13 +218,15 @@ class CustomCylindricalGP(FixedNoiseGP, GPyTorchModel):  # FixedNoiseGP
         self.borders = borders.t()
         self.mean_module = ConstantMean()
         self.covar_module = ScaleKernel(CylindricalKernel(
-            num_angular_weights=3,
+            num_angular_weights=4,
             alpha_prior=KumaAlphaPrior(),
-            alpha_constraint=gpytorch.constraints.constraints.Interval(lower_bound=np.exp(-2.), upper_bound=2.),
+            alpha_constraint=gpytorch.constraints.constraints.Interval(lower_bound=0.5, upper_bound=1.),
             beta_prior=KumaBetaPrior(),
-            beta_constraint=gpytorch.constraints.constraints.Interval(lower_bound=np.exp(-2.), upper_bound=2.),
+            beta_constraint=gpytorch.constraints.constraints.Interval(lower_bound=1., upper_bound=2.),
             radial_base_kernel=MaternKernel(),
-            # angular_weights_prior=gpytorch.priors.NormalPrior(loc=0., scale=2.)
+            # angular_weights_constraint=gpytorch.constraints.constraints.Interval(lower_bound=np.exp(-12.),
+            #                                                                      upper_bound=np.exp(20.)),
+            angular_weights_prior=AngularWeightsPrior()
         ))
         self.to(train_X)  # make sure we're on the right device/dtype
 

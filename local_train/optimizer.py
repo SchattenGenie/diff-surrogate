@@ -492,10 +492,12 @@ class TorchOptimizer(BaseOptimizer):
                  lr: float = 1e-1,
                  torch_model: str = 'Adam',
                  optim_params: dict = {},
+                 lr_algo: str = None,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._x.requires_grad_(True)
         self._lr = lr
+        self._lr_algo = lr_algo
         self._alpha_k = self._lr
         self._torch_model = torch_model
         self._optim_params = optim_params
@@ -507,9 +509,18 @@ class TorchOptimizer(BaseOptimizer):
 
     def _step(self):
         init_time = time.time()
-
         self._base_optimizer.zero_grad()
         d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
+
+        if self._lr_algo == "None":
+            self._optimizer.param_groups[0]['lr'] = self._x_step
+        elif self._lr_algo == "Grad":
+            self._optimizer.param_groups[0]['lr'] = self._x_step / g_k.norm().item()
+        elif self._lr_algo == "Dim":
+            self._optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(g_k)))
+        else:
+            pass
+
         print("Grad: ", d_k)
         self._x.grad = d_k.detach().clone()
         self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
