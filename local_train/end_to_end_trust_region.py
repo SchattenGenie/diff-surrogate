@@ -198,6 +198,8 @@ def end_to_end_training(
 @click.option('--step_data_gen', type=float, default=0.1)
 @click.option('--n_samples_per_dim', type=int, default=3000)
 @click.option('--init_psi', type=str, default="0., 0.")
+@click.option('--lr_algo', type=str, default="None")
+@click.option('--line_search', type=str, default="Wolfe")
 def main(model,
          optimizer,
          logger,
@@ -214,6 +216,8 @@ def main(model,
          n_samples_per_dim,
          lr,
          init_psi,
+         line_search,
+         lr_algo
          ):
     model_config = getattr(__import__(model_config_file), 'model_config')
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
@@ -223,6 +227,9 @@ def main(model,
     model_config['psi_dim'] = psi_dim
     optimizer_config['x_step'] = step_data_gen
     optimizer_config['lr'] = lr
+    if lr_algo == "0": lr_algo = None
+    optimizer_config['lr_algo'] = lr_algo
+    optimizer_config['line_search'] = line_search
 
     optimized_function_cls = str_to_class(optimized_function)
     model_cls = str_to_class(model)
