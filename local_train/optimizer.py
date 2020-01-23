@@ -515,9 +515,9 @@ class TorchOptimizer(BaseOptimizer):
         if self._lr_algo == "None":
             self._optimizer.param_groups[0]['lr'] = self._x_step
         elif self._lr_algo == "Grad":
-            self._optimizer.param_groups[0]['lr'] = self._x_step / g_k.norm().item()
+            self._optimizer.param_groups[0]['lr'] = self._x_step / d_k.norm().item()
         elif self._lr_algo == "Dim":
-            self._optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(g_k)))
+            self._optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(d_k)))
         else:
             pass
 
