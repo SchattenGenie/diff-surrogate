@@ -25,7 +25,7 @@ from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
 from adaptive_borders import AdaptiveBorders
-from trust_region import TrustRegion
+from trust_region import TrustRegionSymmetric
 from base_model import average_block_wise
 from RegressionNN.regression_model import RegressionModel, RegressionRiskModel
 from scipy.stats import chi2
@@ -71,6 +71,10 @@ def end_to_end_training(
         step_data_gen: float,
         n_samples: int,
         current_psi: Union[List[float], torch.tensor],
+        sphere_cut: bool,
+        correct_optimizer: bool,
+        use_std: bool,
+        probabilistic: bool,
         experiment=None
 ):
     """
@@ -101,11 +105,12 @@ def end_to_end_training(
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
     model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
 
-    trust_region = TrustRegion(**trust_region_config)
+    trust_region = TrustRegionSymmetric(use_std=use_std, probabilistic=probabilistic, **trust_region_config)
 
     optimizer = optimizer_cls(
         oracle=model,
         x=current_psi,
+        correct=correct_optimizer,
         **optimizer_config
     )
     print(model_config)
@@ -114,6 +119,7 @@ def end_to_end_training(
         psi_dim=model_config['psi_dim'],
         y_dim=model_config['y_dim'],
         x_dim=model_config['x_dim'],
+        sphere_cut=sphere_cut,
         device=device
     )
     weights = None
@@ -146,7 +152,7 @@ def end_to_end_training(
         model = model_cls(y_model=y_sampler, **model_config, logger=gan_logger).to(device)
         model.fit(x, condition=condition, weights=weights)
         model.eval()
-
+        previous_psi = current_psi.clone().detach()
         current_psi, step_data_gen, optimizer, history = trust_region.step(
             y_model=y_sampler,
             model=model,
@@ -164,6 +170,15 @@ def end_to_end_training(
             # logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
             logger.log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
             logger.log_optimizer(optimizer)
+            experiment.log_metric("trust_region_radius", step_data_gen)
+            experiment.log_metric("psi_difference_norm", (previous_psi - current_psi).norm().item())
+            experiment.log_metric("used_samples_per_step", used_samples)
+            experiment.log_metric("sample_size", len(x))
+            experiment.log_metric("rho", history["rho"])
+            experiment.log_metric("diff_real", history["diff_real"])
+            experiment.log_metric("diff_surrogate", history["diff_surrogate"])
+            experiment.log_metric("uncessessfull_trials", history["uncessessfull_trials"])
+
             # experiment.log_metric('used_samples', used_samples)
             # too long for ship...
             """
@@ -200,6 +215,10 @@ def end_to_end_training(
 @click.option('--step_data_gen', type=float, default=0.1)
 @click.option('--n_samples_per_dim', type=int, default=3000)
 @click.option('--init_psi', type=str, default="0., 0.")
+@click.option('--use_std', type=bool, default=True)
+@click.option('--sphere_cut', type=bool, default=True)
+@click.option('--correct_optimizer', type=bool, default=True)
+@click.option('--probabilistic', type=bool, default=True)
 @click.option('--lr_algo', type=str, default="None")
 @click.option('--line_search', type=str, default="Wolfe")
 def main(model,
@@ -218,6 +237,10 @@ def main(model,
          n_samples_per_dim,
          lr,
          init_psi,
+         correct_optimizer,
+         sphere_cut,
+         use_std,
+         probabilistic,
          line_search,
          lr_algo
          ):
@@ -253,11 +276,9 @@ def main(model,
     experiment.log_parameters(
         {"optimizer_{}".format(key): value for key, value in optimizer_config.get('optim_params', {}).items()}
     )
-    # experiment.log_asset("./gan_model.py", overwrite=True)
-    # experiment.log_asset("./optim.py", overwrite=True)
-    # experiment.log_asset("./train.py", overwrite=True)
-    # experiment.log_asset("../model.py", overwrite=True)
-
+    experiment.log_parameters(
+        {"tr_{}".format(key): value for key, value in trust_region_config.items()}
+    )
     logger = str_to_class(logger)(experiment)
     print("Using device = {}".format(device))
 
@@ -274,7 +295,11 @@ def main(model,
         n_samples_per_dim=n_samples_per_dim,
         step_data_gen=step_data_gen,
         n_samples=n_samples,
-        experiment=experiment
+        experiment=experiment,
+        correct_optimizer=correct_optimizer,
+        sphere_cut=sphere_cut,
+        use_std=use_std,
+        probabilistic=probabilistic
     )
 
 

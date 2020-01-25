@@ -211,10 +211,11 @@ class AngularWeightsPrior(gpytorch.priors.Prior):
         scale = torch.tensor(2.).to(x)
         return torch.distributions.Normal(loc=loc, scale=scale).log_prob(x).sum()
 
-class CustomCylindricalGP(FixedNoiseGP, GPyTorchModel):  # FixedNoiseGP
+
+class CustomCylindricalGP(SingleTaskGP, GPyTorchModel):  # FixedNoiseGP SingleTaskGP
     def __init__(self, train_X, train_Y, noise, borders):
         # squeeze output dim before passing train_Y to ExactGP
-        super().__init__(train_X, train_Y.squeeze(-1), noise.squeeze(-1))
+        super().__init__(train_X, train_Y.squeeze(-1), GaussianLikelihood())  # GaussianLikelihood() noise.squeeze(-1)
         self.borders = borders.t()
         self.mean_module = ConstantMean()
         self.covar_module = ScaleKernel(CylindricalKernel(

@@ -9,6 +9,6 @@ optimizer_config = {
      #     'c1': 1e-4,
      #     'c2': 0.5,
      # },
-     #'optim_params': {"momentum": 0.9},
-    'torch_model': 'Adam',
+     'optim_params': {"momentum": 0.9},
+    'torch_model': 'SGD',
 }

@@ -1,6 +1,6 @@
 import torch
 from scipy.stats import chi2
-
+import numpy as np
 
 class ExperienceReplay:
     def __init__(self, psi_dim, x_dim, y_dim, device, sphere_cut=False):
@@ -26,6 +26,11 @@ class ExperienceReplay:
             mask = ((self._condition[:, :self._psi_dim] - psi).pow(2).sum(dim=1).sqrt() < step)  # sphere
         else:
             mask = ((self._condition[:, :self._psi_dim] - psi).abs() < step).all(dim=1)
+        if mask.sum() > 2500000:
+            idx = np.random.choice(np.where(mask.detach().cpu().numpy())[0], size=2500000, replace=False)
+            new_mask = np.ones(len(mask))
+            new_mask[idx] = 1.
+            mask = torch.tensor(new_mask).bool()
         y = (self._y[mask]).to(self._device)
         condition = (self._condition[mask]).to(self._device)
         return y, condition

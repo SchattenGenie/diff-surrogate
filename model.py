@@ -220,6 +220,34 @@ class RosenbrockModel(YModel):
                                                         keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
 
 
+class RosenbrockModelNoisless(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor,
+                 x_range: tuple = (-10, 10),
+                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._x_dist = dist.Uniform(*x_range)
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self.loss = loss
+
+    @staticmethod
+    def g(x):
+        return 100 * (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                              keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+
+    def sample_x(self, sample_size):
+        return pyro.sample('x', self._x_dist, torch.Size([sample_size])).to(self.device).view(-1, self._x_dim)
+
+    def _generate_dist(self, psi, x):
+        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
+        latent_psi = self.g(psi)
+        return dist.Delta(latent_psi)
+
+
 class Hartmann6(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
