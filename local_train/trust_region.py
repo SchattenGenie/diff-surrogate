@@ -60,10 +60,8 @@ class TrustRegionSymmetric:
         used_samples = 2
         X = []
         y = []
-
-        optimizer.update(oracle=model, x=previous_psi, step=step)
+        optimizer.update(oracle=model, x=copy.deepcopy(previous_psi.clone().detach()), step=step)
         current_psi, status, history = optimizer.optimize()
-
         func_prev_surr = model.func(previous_psi, num_repetitions=int((1 + self._uncessessfull_trials) * num_repetitions)).detach().clone().to(self._device)
         func_curr_surr = model.func(current_psi, num_repetitions=int((1 + self._uncessessfull_trials) * num_repetitions)).detach().clone().to(self._device)
         # y_model.generate()
@@ -89,6 +87,7 @@ class TrustRegionSymmetric:
         func_curr = func_curr.mean()
         rho = ((func_prev - func_curr) / (func_prev_surr - func_curr_surr)).item()
         success = False
+        print("Previous func", func_prev, "next_func", func_curr)
         if rho > self._eps and (func_prev - func_curr).item() >= f_cut:
             psi = current_psi
             success = True
@@ -96,6 +95,7 @@ class TrustRegionSymmetric:
         else:
             psi = previous_psi
             self._uncessessfull_trials += 1
+        print("success", success)
 
         step_status = None
         # --------------------------------------------------------------------------------
