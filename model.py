@@ -236,8 +236,8 @@ class RosenbrockModelNoisless(YModel):
 
     @staticmethod
     def g(x):
-        return 100 * (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
-                                                              keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
+        return (x[:, 1:] - x[:, :-1].pow(2)).pow(2).sum(dim=1,
+                                                        keepdim=True) + (1 - x[:, :-1]).pow(2).sum(dim=1, keepdim=True)
 
     def sample_x(self, sample_size):
         return pyro.sample('x', self._x_dist, torch.Size([sample_size])).to(self.device).view(-1, self._x_dim)

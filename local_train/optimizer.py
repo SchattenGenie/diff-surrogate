@@ -806,8 +806,8 @@ class BOCKOptimizer(BaseOptimizer):
         x_tmp = torch.tensor(sobol_seq.i4_sobol_generate(len(self._x), num_init)).float()
         x_tmp = x_tmp * (borders[:, 1] - borders[:, 0]) + borders[:, 0]
         self._X_dataset = torch.zeros(0, len(self._x)).to(self._x)
-        self._y_dataset = torch.zeros(0).to(self._x)
-        self._y_noise = torch.zeros(0).to(self._x)
+        self._y_dataset = torch.zeros(0, 1).to(self._x)
+        self._y_noise = torch.zeros(0, 1).to(self._x)
 
         self._X_dataset = torch.cat(
             [
@@ -827,14 +827,14 @@ class BOCKOptimizer(BaseOptimizer):
         self._y_dataset = torch.cat(
             [
                 self._y_dataset,
-                func_x_.mean().view(1)
-            ] + [func_x_t_.mean().view(1) for func_x_t_ in func_x_t]
+                func_x_.mean().view(1, 1)
+            ] + [func_x_t_.mean().view(1, 1) for func_x_t_ in func_x_t]
         )
         self._y_noise = torch.cat(
             [
                 self._y_noise,
-                func_x_.std().view(1) / np.sqrt(len(func_x_))
-            ] + [func_x_t_.std().view(1) / np.sqrt(len(func_x_t_)) for func_x_t_ in func_x_t]
+                func_x_.std().view(1, 1) / np.sqrt(len(func_x_))
+            ] + [func_x_t_.std().view(1, 1) / np.sqrt(len(func_x_t_)) for func_x_t_ in func_x_t]
         )
         self._state_dict = None
 
@@ -852,14 +852,14 @@ class BOCKOptimizer(BaseOptimizer):
         from gp_botorch import SingleTaskGP, ExpectedImprovement, bo_step, CustomCylindricalGP
         init_time = time.time()
         print(self._X_dataset.shape, self._y_dataset.shape)
-        GP = lambda X, y, noise, borders: CustomCylindricalGP(X, y, noise, borders)
+        GP = lambda X, y, noise, borders: CustomCylindricalGP(X, y.view(-1, 1), noise, borders)
         acquisition = lambda gp, y: ExpectedImprovement(gp, y.min(), maximize=False)
         objective = lambda x: self._oracle._y_model.func(x, num_repetitions=self._num_repetitions)  # .view(-1, 1)
         print("_y_dataset", self._y_dataset[-1], self._X_dataset[-1], self._y_noise[-1])
         X, y, gp = bo_step(
             self._X_dataset,
-            self._y_dataset,
-            noise=self._y_noise,
+            self._y_dataset.view(-1, 1),
+            noise=self._y_noise.view(-1, 1),
             objective=objective,
             bounds=self._borders,
             GP=GP,
@@ -875,7 +875,7 @@ class BOCKOptimizer(BaseOptimizer):
         x_k = self._X_dataset[-1]
         func_x_, _ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
         func_x_ = self._oracle._y_model.loss(func_x_)
-        self._y_noise = torch.cat([self._y_noise, func_x_.std().view(1) / np.sqrt(len(func_x_))])
+        self._y_noise = torch.cat([self._y_noise, func_x_.std().view(1, 1) / np.sqrt(len(func_x_))])
         self._x = self._X_dataset[self._y_dataset.argmin()].clone().detach()
         super()._post_step(init_time)
         if not (torch.isfinite(x_k).all() and

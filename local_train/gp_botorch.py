@@ -8,7 +8,7 @@ import botorch
 from botorch.models import HeteroskedasticSingleTaskGP
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from botorch.fit import fit_gpytorch_model
-from botorch.optim import joint_optimize, sequential_optimize
+from botorch.optim import joint_optimize, sequential_optimize, optimize_acqf
 from botorch.acquisition import ExpectedImprovement
 from botorch.models.gpytorch import GPyTorchModel
 from gpytorch.likelihoods import GaussianLikelihood
@@ -116,37 +116,36 @@ def bo_step(X,
     gp : botorch.models.Model
         Constructed GP model
     """
-    std = y.std()
-    y_normed = y / std
-    noise_normed = noise / std
-    # state_dict = None
     attempts = 0
     while attempts < 10:
         try:
+            options = {'lr': 1e-1 / (1 + 10**attempts), 'maxiter': 100}
             # Create GP model
-            mll, gp = initialize_model(X, y_normed, noise=noise_normed, bounds=bounds, GP=GP, state_dict=state_dict)
+            mll, gp = initialize_model(X, y, noise=noise, bounds=bounds, GP=GP, state_dict=state_dict)
             if USE_SCIPY:
                 fit_gpytorch_model(mll)
             else:
-                fit_gpytorch_model(mll, optimizer=fit_gpytorch_torch, options={'lr': 0.1})
+                fit_gpytorch_model(mll, optimizer=fit_gpytorch_torch, options=options)
 
             # Create acquisition function
-            acquisition_ = acquisition(gp, y_normed)
+            acquisition_ = acquisition(gp, y)
 
             # Optimize acquisition function
-            candidate = joint_optimize(
+            candidate, acq_value_list = joint_optimize(
                 acquisition_, bounds=bounds, q=q, num_restarts=20, raw_samples=20000,
             )
             break
         except RuntimeError:
-            state_dict = None
+            # state_dict = None
             attempts += 1
+            if attempts > 1:
+                state_dict = None
             print("Attempt #{}".format(attempts), traceback.print_exc())
 
     # candidate = candidate / 8
     # Update data set
     X = torch.cat([X, candidate])
-    y = torch.cat([y, objective(candidate)])
+    y = torch.cat([y, objective(candidate).view(1, 1)], dim=0)
     if plot:
         utils.plot_acquisition(acquisition, X, y, candidate)
 
@@ -215,7 +214,7 @@ class AngularWeightsPrior(gpytorch.priors.Prior):
 class CustomCylindricalGP(SingleTaskGP, GPyTorchModel):  # FixedNoiseGP SingleTaskGP
     def __init__(self, train_X, train_Y, noise, borders):
         # squeeze output dim before passing train_Y to ExactGP
-        super().__init__(train_X, train_Y.squeeze(-1), GaussianLikelihood())  # GaussianLikelihood() noise.squeeze(-1)
+        super().__init__(train_X, train_Y)  # GaussianLikelihood())  # GaussianLikelihood() noise.squeeze(-1)
         self.borders = borders.t()
         self.mean_module = ConstantMean()
         self.covar_module = ScaleKernel(CylindricalKernel(
