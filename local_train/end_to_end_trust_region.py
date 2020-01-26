@@ -158,7 +158,9 @@ def end_to_end_training(
             model=model,
             previous_psi=current_psi,
             step=step_data_gen,
-            optimizer=optimizer
+            optimizer=optimizer,
+            X_data=condition,
+            y_data=x
         )
         exp_replay.add(y=history['y'], condition=history['X'])
         used_samples += history['used_samples']

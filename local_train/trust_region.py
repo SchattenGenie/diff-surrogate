@@ -41,6 +41,8 @@ class TrustRegionSymmetric:
             previous_psi,
             step,
             optimizer,
+            X_data,
+            y_data,
             num_repetitions=10000,
     ):
         """
@@ -70,16 +72,16 @@ class TrustRegionSymmetric:
         func_prev = y_model.loss(func_prev)
         func_curr = y_model.loss(func_curr)
         X.append(X_prev); y.append(func_prev); X.append(X_curr); y.append(func_curr)
-        std = (
+        std_raw = (
                 (
                         func_prev.std() / (len(func_prev) - 1)**(0.5) + func_curr.std() / (len(func_curr) - 1)**(0.5)
                 )
         ).item()
 
         # correction to garantee convergance to zero of step
-        std = std / (1 + self._uncessessfull_trials)
+        std = std_raw / (1 + self._uncessessfull_trials)
         if self._use_std:
-            f_cut = std / (1 + self._uncessessfull_trials)  # so f_cut = sigma / (1 + self._uncessessfull_trials)**2
+            f_cut = std_raw / (1 + self._uncessessfull_trials)**2
         else:
             f_cut = self._eps
         func_prev = func_prev.mean()
@@ -90,12 +92,9 @@ class TrustRegionSymmetric:
             psi = current_psi
             success = True
             self._uncessessfull_trials = max(0, self._uncessessfull_trials - 1)
-            if rho < self._tau_1 or (current_psi - previous_psi).norm().item() < 1e-2 * step:
-                optimizer.reverse_optimizer()
         else:
             psi = previous_psi
             self._uncessessfull_trials += 1
-            optimizer.reverse_optimizer()
 
         step_status = None
         # --------------------------------------------------------------------------------
@@ -144,7 +143,17 @@ class TrustRegionSymmetric:
                 else:
                     step = self._tau_3 * step
 
-        # step = np.clip(step, std, np.inf)
+        # last correction
+        psi_uniques = X_data[:, :len(psi)].unique(dim=0)
+        ys = []
+        y_data = y_model.loss(y_data)
+        for psi_unique in psi_uniques:
+            mask = (X_data[:, :len(psi)] == psi_unique).all(dim=1)
+            ys.append(y_data[mask].mean().item())
+
+        if np.std(ys) < std_raw:
+            step = self._tau_2 * step
+
         return psi, step, optimizer, {
             'diff_real': (func_prev - func_curr).item(),
             'diff_surrogate': (func_prev_surr - func_curr_surr).item(),
