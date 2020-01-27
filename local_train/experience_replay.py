@@ -26,9 +26,9 @@ class ExperienceReplay:
             mask = ((self._condition[:, :self._psi_dim] - psi).pow(2).sum(dim=1).sqrt() < step)  # sphere
         else:
             mask = ((self._condition[:, :self._psi_dim] - psi).abs() < step).all(dim=1)
-        if mask.sum() > 2500000:
-            idx = np.random.choice(np.where(mask.detach().cpu().numpy())[0], size=2500000, replace=False)
-            new_mask = np.ones(len(mask))
+        if mask.sum() > 5000000:
+            idx = np.random.choice(np.where(mask.detach().cpu().numpy())[0], size=5000000, replace=False)
+            new_mask = np.zeros(len(mask))
             new_mask[idx] = 1.
             mask = torch.tensor(new_mask).bool()
         y = (self._y[mask]).to(self._device)
