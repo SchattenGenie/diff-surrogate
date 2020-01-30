@@ -3,6 +3,7 @@ import pyro
 import numpy as np
 from pyro import distributions as dist
 from local_train.base_model import BaseConditionalGenerationOracle
+from sklearn.datasets import load_boston
 import torch.nn.functional as F
 import torch.nn as nn
 from scipy.stats import norm
@@ -243,7 +244,6 @@ class RosenbrockModelNoisless(YModel):
         return pyro.sample('x', self._x_dist, torch.Size([sample_size])).to(self.device).view(-1, self._x_dim)
 
     def _generate_dist(self, psi, x):
-        latent_x = self.f(pyro.sample('latent_x', dist.Normal(x, 1))).to(self.device)
         latent_psi = self.g(psi)
         return dist.Delta(latent_psi)
 
@@ -319,6 +319,7 @@ def init_orthogonal_embedder(psi_dim, out_dim, seed=1337):
     lin_2 = list(deep_embedder[-1].parameters())[0]
     lin_2.data = torch.tensor(ortho_matrix_2.T).to(lin_2)
     return deep_embedder
+
 
 class GaussianMixtureHumpModelDegenerate(YModel):
     def __init__(self, device,
@@ -1581,8 +1582,6 @@ class BOCKModel(YModel):
         return self.X_test.repeat((sample_size // len(self.X_test), 1))
 
     def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
-
-
         xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
 
         if n_samples == 0:
@@ -1597,3 +1596,98 @@ class BOCKModel(YModel):
         data = torch.cat(data_list).to(self.device)
         mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
         return data, torch.cat([mus, xs], dim=1)
+
+
+class BostonNNTuning(YModel):
+    def __init__(self, device,
+                 psi_init: torch.Tensor):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=1, y_dim=1)  # hardcoded values
+        assert len(psi_init) == 91
+        self._psi_dim = 91
+        self._device = device
+        boston = load_boston()
+        X, y = (boston.data, boston.target)
+        self._X = torch.tensor(X).float().to(self._device)
+        self._y = torch.tensor(y).float().view(-1, 1).to(self._device)
+        torch.manual_seed(1337)
+        self._net = nn.Sequential(
+            nn.Linear(13, 6),
+            nn.Tanh(),
+            nn.Linear(6, 1)
+        ).to(self._device)
+        self._net.requires_grad_(False)
+        self._d = dict([
+            (tuple(x.detach().cpu().numpy().astype(np.float32)), y_.detach().cpu().numpy().astype(np.float32)[0])
+            for x, y_ in zip(self._X, self._y)])
+        torch.manual_seed(np.random.get_state()[1][-1])
+
+    def _set_parameters(self, psi):
+        self._net[0].weight.data = psi[: 6 * 13].view(6, 13).detach().clone().float().to(self._device)
+        self._net[0].bias.data = psi[6 * 13: 6 * 13 + 6].view(6).detach().clone().float().to(self._device)
+
+        self._net[2].weight.data = psi[6 * 13 + 6: 6 * 13 + 6 + 6].view(1, 6).detach().clone().float().to(self._device)
+        self._net[2].bias.data = psi[6 * 13 + 6 + 6: 6 * 13 + 6 + 6 + 1].view(1).detach().clone().float().to(
+            self._device)
+
+    def sample_x(self, num_repetitions):
+        sample_indices = np.random.choice(
+            range(len(self._X)),
+            num_repetitions,
+            replace=True
+        )
+        return self._X[sample_indices]
+
+    def _generate(self, psi, x):
+        self._set_parameters(psi)
+        return self._net(x)
+
+    def generate(self, condition):
+        if len(condition.view(-1)) > self._psi_dim + 13:
+            RuntimeWarning('len(psi) > 91 is not supported in generate')
+        psi = condition.view(-1)[:self._psi_dim]
+        _, x = condition[:, :self._psi_dim], condition[:, self._psi_dim:]
+        return self._generate(psi, x)
+
+    def loss(self, y, conditions):
+        psi, x = conditions[:, :self._psi_dim], conditions[:, self._psi_dim:]
+        y_true = [self._d[tuple(x_.detach().cpu().numpy().astype(np.float32))] for x_ in x]
+        y_true = torch.tensor(y_true).view(-1, 1).to(y)
+        return (y - y_true).pow(2)
+
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+        if n_samples == 0:
+            mus = torch.zeros(0, len(current_psi)).float().to(self.device)
+        else:
+            mus = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
+        mus = step * (mus * 2 - 1) + current_psi
+        mus = torch.cat([mus, current_psi.view(1, -1)])
+        data_list = []
+        for i, mu in enumerate(mus):
+            data_list.append(self._generate(mu, xs[i * n_samples_per_dim: (i + 1) * n_samples_per_dim]))
+        data = torch.cat(data_list).to(self.device)
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        return data, torch.cat([mus, xs], dim=1)
+
+    def generate_local_data_lhs_normal(self, n_samples_per_dim, sigma, current_psi, n_samples=2):
+        xs = self.sample_x(n_samples_per_dim * (n_samples + 1))
+        mus = np.append(lhs(len(current_psi), n_samples), np.ones((1, len(current_psi))) / 2., axis=0)
+        for i in range(len(current_psi)):
+            mus[:, i] = norm(loc=current_psi[i].item(), scale=sigma[i].item()).ppf(
+                mus[:, i]
+            )
+        mus = torch.tensor(mus).float().to(self.device)
+        data_list = []
+        for i, mu in enumerate(mus):
+            data_list.append(self._generate(mu, xs[i * n_samples_per_dim: (i + 1) * n_samples_per_dim]))
+        data = torch.cat(data_list).to(self.device)
+        mus = mus.repeat(1, n_samples_per_dim).reshape(-1, len(current_psi))
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1), None, None
+
+    def generate_data_at_point(self, n_samples_per_dim, current_psi):
+        xs = self.sample_x(n_samples_per_dim)
+        data = self._generate(current_psi, xs)
+        mus = current_psi.repeat(n_samples_per_dim, 1).clone().detach()
+        return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
