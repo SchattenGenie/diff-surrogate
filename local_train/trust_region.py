@@ -69,8 +69,8 @@ class TrustRegionSymmetric:
         func_curr, X_curr = y_model.generate_data_at_point(n_samples_per_dim=num_repetitions, current_psi=current_psi)
         X.append(X_prev); y.append(func_prev); X.append(X_curr); y.append(func_curr)
 
-        func_prev = y_model.loss(func_prev)
-        func_curr = y_model.loss(func_curr)
+        func_prev = y_model.loss(func_prev, conditions=X_curr)
+        func_curr = y_model.loss(func_curr, conditions=X_curr)
         std_raw = (
                 (
                         func_prev.std() / (len(func_prev) - 1)**(0.5) + func_curr.std() / (len(func_curr) - 1)**(0.5)
@@ -147,7 +147,7 @@ class TrustRegionSymmetric:
         # last correction
         psi_uniques = X_data[:, :len(psi)].unique(dim=0)
         ys = []
-        y_data = y_model.loss(y_data)
+        y_data = y_model.loss(y_data, X_data)
         for psi_unique in psi_uniques:
             mask = (X_data[:, :len(psi)] == psi_unique).all(dim=1)
             ys.append(y_data[mask].mean().item())

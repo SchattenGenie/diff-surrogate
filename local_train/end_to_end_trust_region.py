@@ -13,7 +13,7 @@ from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianM
                   ModelDegenerate, ModelInstrict, Hartmann6, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, \
                   RosenbrockModelDeepDegenerate, GaussianMixtureHumpModelDeepDegenerate, \
-                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate
+                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate, BostonNNTuning
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
 from gmm_model import GMMModel

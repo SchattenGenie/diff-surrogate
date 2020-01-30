@@ -13,7 +13,7 @@ from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianM
                   ModelDegenerate, ModelInstrict, Hartmann6, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, BOCKModel, \
                   RosenbrockModelDeepDegenerate, GaussianMixtureHumpModelDeepDegenerate, \
-                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate
+                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate, BostonNNTuning
 from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
 from ffjord_model import FFJORDModel
 from gmm_model import GMMModel
@@ -25,7 +25,6 @@ from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
 from adaptive_borders import AdaptiveBorders
-from trust_region import TrustRegion
 REWEIGHT = False
 if REWEIGHT:
     from hep_ml import reweight
