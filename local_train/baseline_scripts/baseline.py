@@ -15,7 +15,7 @@ from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, 
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, \
                   SimpleSHiPModel, RosenbrockModelNoisless, \
                   RosenbrockModelDeepDegenerate, GaussianMixtureHumpModelDeepDegenerate, \
-                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate
+                  GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate, BostonNNTuning
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *

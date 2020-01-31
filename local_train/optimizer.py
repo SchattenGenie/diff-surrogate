@@ -19,7 +19,7 @@ from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
 from lbfgs import LBFGS, FullBatchLBFGS
 import copy
 from scipy.stats import chi2
-
+from sobol import sobol_generate
 
 SUCCESS = 'success'
 ITER_ESCEEDED = 'iterations_exceeded'
@@ -782,7 +782,6 @@ class CMAGES(BaseOptimizer):
             return COMP_ERROR
 
 
-import sobol_seq
 class BOCKOptimizer(BaseOptimizer):
     def __init__(self,
                  oracle: BaseConditionalGenerationOracle,
@@ -803,7 +802,10 @@ class BOCKOptimizer(BaseOptimizer):
             borders.append((xi - x_step, xi + x_step))
         self._borders = torch.tensor(borders).float().to(self._x).t()
         borders = self._borders.t()
-        x_tmp = torch.tensor(sobol_seq.i4_sobol_generate(len(self._x), num_init)).float()
+        x_tmp = torch.tensor(
+            sobol_generate(n_dim=len(self._x), n_point=num_init)
+            # sobol_seq.i4_sobol_generate(len(self._x), num_init)
+        ).float()
         x_tmp = x_tmp * (borders[:, 1] - borders[:, 0]) + borders[:, 0]
         self._X_dataset = torch.zeros(0, len(self._x)).to(self._x)
         self._y_dataset = torch.zeros(0, 1).to(self._x)
