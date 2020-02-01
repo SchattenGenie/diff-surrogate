@@ -16,18 +16,20 @@ class ExperienceReplay:
         if y is None and condition is None:
             y = torch.zeros(0, self._y_dim).float()
             condition = torch.zeros(0, self._x_dim + self._psi_dim).float()
-        self._y = torch.cat([self._y, y.to('cpu')], dim=0)
-        self._condition = torch.cat([self._condition, condition.to('cpu')], dim=0)
+        self._y = torch.cat([self._y, y.to('cpu').detach().clone()], dim=0)
+        self._condition = torch.cat([self._condition, condition.to('cpu').detach().clone()], dim=0)
         return self
 
     def extract(self, psi, step):
-        psi = psi.float().to('cpu')
+        psi = psi.float().to('cpu').detach().clone()
+
         if self._sphere_cut:
             mask = ((self._condition[:, :self._psi_dim] - psi).pow(2).sum(dim=1).sqrt() < step)  # sphere
         else:
             mask = ((self._condition[:, :self._psi_dim] - psi).abs() < step).all(dim=1)
-        if mask.sum() > 5000000:
-            idx = np.random.choice(np.where(mask.detach().cpu().numpy())[0], size=5000000, replace=False)
+
+        if mask.sum() > 1000000:  # memory issues
+            idx = np.random.choice(np.where(mask.detach().cpu().numpy())[0], size=1000000, replace=False)
             new_mask = np.zeros(len(mask))
             new_mask[idx] = 1.
             mask = torch.tensor(new_mask).bool()

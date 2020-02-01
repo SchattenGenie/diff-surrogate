@@ -205,7 +205,7 @@ class RosenbrockModel(YModel):
     def __init__(self, device,
                  psi_init: torch.Tensor,
                  x_range: tuple = (-10, 10),
-                 loss=lambda y, **kwargs: torch.mean(y, dim=1)):
+                 loss=lambda y, *args, **kwargs: torch.mean(y, dim=1)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=1, y_dim=1) # hardcoded values
@@ -606,7 +606,7 @@ class GaussianMixtureHumpModel(YModel):
                  psi_init: torch.Tensor,
                  x_range=torch.Tensor(((-2, 0), (2, 5))),
                  x_dim=2, y_dim=1,
-                 loss = lambda y, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
+                 loss = lambda y, *args, **kwargs: OptLoss.SigmoidLoss(y, 0, 10)):
         super(YModel, self).__init__(y_model=None,
                                      psi_dim=len(psi_init),
                                      x_dim=x_dim, y_dim=y_dim)
@@ -1640,6 +1640,7 @@ class BostonNNTuning(YModel):
         return self._X[sample_indices]
 
     def _generate(self, psi, x):
+        time.sleep(0.0000001)
         self._set_parameters(psi)
         return self._net(x)
 

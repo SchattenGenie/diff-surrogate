@@ -817,13 +817,12 @@ class BOCKOptimizer(BaseOptimizer):
             ],
             dim=0
         )
-        func_x_, _ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
-        func_x_ = self._oracle._y_model.loss(func_x_)
+        func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
+        func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_)
         func_x_t = [
-            self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t)[0]
+            self._oracle._y_model.loss(*self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t))
             for x_t in x_tmp
         ]
-        func_x_t = [ self._oracle._y_model.loss(func_x_t_) for func_x_t_ in func_x_t]
         self._y_dataset = torch.cat(
             [
                 self._y_dataset,
@@ -873,8 +872,8 @@ class BOCKOptimizer(BaseOptimizer):
         self._y_dataset = y
         f_k = self._y_dataset[-1]  # or best?
         x_k = self._X_dataset[-1]
-        func_x_, _ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
-        func_x_ = self._oracle._y_model.loss(func_x_)
+        func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
+        func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_)
         self._y_noise = torch.cat([self._y_noise, func_x_.std().view(1, 1) / np.sqrt(len(func_x_))])
         self._x = self._X_dataset[self._y_dataset.argmin()].clone().detach()
         super()._post_step(init_time)

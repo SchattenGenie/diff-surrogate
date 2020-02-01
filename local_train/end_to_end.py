@@ -126,7 +126,6 @@ def end_to_end_training(epochs: int,
                            n_samples=n_samples)
     for epoch in range(epochs):
         # generate new data sample
-        # condition
         x, condition = y_sampler.generate_local_data_lhs(
             n_samples_per_dim=n_samples_per_dim,
             step=step_data_gen,
@@ -135,11 +134,12 @@ def end_to_end_training(epochs: int,
         if x is None and condition is None:
             print("Empty training set, continue")
             continue
-        if use_experience_replay:
-                x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
-                exp_replay.add(y=x, condition=condition)
-                x = torch.cat([x, x_exp_replay], dim=0)
-                condition = torch.cat([condition, condition_exp_replay], dim=0)
+        x_exp_replay, condition_exp_replay = exp_replay.extract(psi=current_psi, step=step_data_gen)
+        exp_replay.add(y=x, condition=condition)
+        x = torch.cat([x, x_exp_replay], dim=0)
+        condition = torch.cat([condition, condition_exp_replay], dim=0)
+        used_samples = n_samples
+
         # breaking things
         if model_config.get("predict_risk", False):
             condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
@@ -208,6 +208,8 @@ def end_to_end_training(epochs: int,
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
+            experiment.log_metric("used_samples_per_step", used_samples)
+            experiment.log_metric("sample_size", len(x))
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):
