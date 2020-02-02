@@ -109,7 +109,7 @@ class NumericalDifferencesModel(BaseConditionalGenerationOracle):
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
 @click.option('--n', type=int, default=3)
 @click.option('--num_repetitions', type=int, default=3000)
-@click.option('--h', type=float, default=0.2)
+@click.option('--h', type=float, default=0.05)
 @click.option('--p', type=int, default=10)
 @click.option('--use_true_grad', type=bool, default=False)
 @click.option('--init_psi', type=str, default="0., 0.")
