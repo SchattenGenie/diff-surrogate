@@ -72,7 +72,13 @@ class BaseOptimizer(ABC):
         if not (
                 isinstance(self._oracle, SimpleSHiPModel) or
                 isinstance(self._oracle, SHiPModel) or
-                isinstance(self._oracle, FullSHiPModel)
+                isinstance(self._oracle, FullSHiPModel) or
+                (
+                        type(self._oracle).__name__ in [
+                    'SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel",
+                    "BostonNNTuning", "RosenbrockModelDegenerate",
+                    "GaussianMixtureHumpModelDeepDegenerate", "NumericalDifferencesModel"]
+                )
         ):
             self._history['grad'].append(
                 self._oracle.grad(self._x,
@@ -803,7 +809,7 @@ class BOCKOptimizer(BaseOptimizer):
         self._borders = torch.tensor(borders).float().to(self._x).t()
         borders = self._borders.t()
         soboleng = torch.quasirandom.SobolEngine(dimension=len(self._x))
-        x_tmp = soboleng.draw(num_init).float()
+        x_tmp = soboleng.draw(num_init).float().to(self._x)
         x_tmp = x_tmp * (borders[:, 1] - borders[:, 0]) + borders[:, 0]
         self._X_dataset = torch.zeros(0, len(self._x)).to(self._x)
         self._y_dataset = torch.zeros(0, 1).to(self._x)
@@ -820,20 +826,20 @@ class BOCKOptimizer(BaseOptimizer):
         func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
         func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_)
         func_x_t = [
-            self._oracle._y_model.loss(*self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t))
+            self._oracle._y_model.loss(*self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t)).detach()
             for x_t in x_tmp
         ]
         self._y_dataset = torch.cat(
             [
                 self._y_dataset,
-                func_x_.mean().view(1, 1)
-            ] + [func_x_t_.mean().view(1, 1) for func_x_t_ in func_x_t]
+                func_x_.mean().detach().view(1, 1)
+            ] + [func_x_t_.mean().detach().view(1, 1) for func_x_t_ in func_x_t]
         )
         self._y_noise = torch.cat(
             [
                 self._y_noise,
-                func_x_.std().view(1, 1) / np.sqrt(len(func_x_))
-            ] + [func_x_t_.std().view(1, 1) / np.sqrt(len(func_x_t_)) for func_x_t_ in func_x_t]
+                func_x_.std().detach().view(1, 1) / np.sqrt(len(func_x_))
+            ] + [func_x_t_.std().detach().view(1, 1) / np.sqrt(len(func_x_t_)) for func_x_t_ in func_x_t]
         )
         self._state_dict = None
 
@@ -873,7 +879,7 @@ class BOCKOptimizer(BaseOptimizer):
         f_k = self._y_dataset[-1]  # or best?
         x_k = self._X_dataset[-1]
         func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
-        func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_)
+        func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_).detach()
         self._y_noise = torch.cat([self._y_noise, func_x_.std().view(1, 1) / np.sqrt(len(func_x_))])
         self._x = self._X_dataset[self._y_dataset.argmin()].clone().detach()
         super()._post_step(init_time)
