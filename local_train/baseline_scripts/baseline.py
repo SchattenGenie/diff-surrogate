@@ -31,13 +31,6 @@ def get_freer_gpu():
     return np.argmax(memory_available)
 
 
-# if torch.cuda.is_available():
-#     device = torch.device('cuda:{}'.format(get_freer_gpu()))
-# else:
-device = torch.device('cpu')
-print("Using device = {}".format(device))
-
-
 def str_to_class(classname: str):
     """
     Function to get class object by its name signature
@@ -129,6 +122,8 @@ def main(
         init_psi,
         p
 ):
+    device = torch.device('cpu')
+    print("Using device = {}".format(device))
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
@@ -177,6 +172,7 @@ def main(
         logger.log_performance(y_sampler=y_model,
                                current_psi=current_psi,
                                n_samples=5000)
+        torch.cuda.empty_cache()
 
     logger.log_optimizer(optimizer)
 
