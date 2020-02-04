@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.autograd import Variable
 import torch.utils.data as dataset_utils
 import copy
 from base_model import BaseConditionalGenerationOracle
@@ -66,8 +67,10 @@ class FFJORDModel(BaseConditionalGenerationOracle):
                  lr: float = 1e-3,
                  epochs: int = 10,
                  bn_lag: float = 1e-3,
+                 instance_noise_std: float = None,
+                 log_prob_grad_penalty: float = None,
                  batch_norm: bool = True,
-                 solver='fixed_adams',
+                 solver='fixed_adams',  # dopri5 fixed_adams
                  hidden_dims: Tuple[int] = (32, 32),
                  logger=None,
                  **kwargs):
@@ -94,18 +97,49 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._cond_std = torch.ones(self._x_dim + self._psi_dim).float().to(y_model._device)
         self._y_mean = torch.zeros(self._y_dim).float().to(y_model._device)
         self._y_std = torch.ones(self._y_dim).float().to(y_model._device)
-
+        self._instance_noise_std = instance_noise_std
+        self._log_prob_grad_penalty = log_prob_grad_penalty
 
     def loss(self, y, condition, weights=None):
-        y = (y - self._y_mean) / self._y_std
-        condition = (condition - self._cond_mean) / self._cond_std
-        return compute_loss(self._model, data=y.detach(), condition=condition.detach(), weights=weights)
+        return compute_loss(self._model, data=y.detach(), condition=condition.detach())
+
+    @staticmethod
+    def instance_noise(data, std):
+        return data + torch.randn_like(data) * data.std(dim=0) * std
+
+    def log_prob_grad_penalty(self, condition, y):
+        alpha = torch.rand(len(condition), 1).expand(condition.size()).to(condition)
+        condition_hat = Variable(
+            alpha * condition.data +
+            (1 - alpha) * (
+                    condition.data +
+                    self._log_prob_grad_penalty * condition.data.std(dim=0) * torch.rand(condition.size()).to(condition)
+            ),
+            requires_grad=True
+        )
+        _, density_fn = get_transforms(self._model)
+        density = density_fn(y, condition_hat)
+        gradients = torch.autograd.grad(
+            outputs=density,
+            inputs=condition_hat,
+            grad_outputs=torch.ones(density.size()).to(condition),
+            create_graph=True,
+            retain_graph=True,
+            only_inputs=True
+        )[0]
+        gradient_penalty = ((gradients.norm(2, dim=1) - 1.) ** 2).mean()
+        print('gradient_penalty', gradient_penalty.item())
+        return gradient_penalty
 
     def fit(self, y, condition, weights=None):
         self._cond_mean = condition.mean(0).detach().clone()
         self._cond_std = condition.std(0).detach().clone()
         self._y_mean = y.mean(0).detach().clone()
         self._y_std = y.std(0).detach().clone()
+
+        y = (y - self._y_mean) / self._y_std
+        condition = (condition - self._cond_mean) / self._cond_std
+
         self.train()
         print(self.device)
         trainable_parameters = list(self._model.parameters())
@@ -135,13 +169,16 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         """
         dataset = dataset_utils.TensorDataset(condition, y)
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=128000, shuffle=True)
-        for epoch in tqdm(range(self._epochs)):
+        for _ in tqdm(range(self._epochs)):
             loss_sum = 0.
             for condition_batch, y_batch in train_loader:
-                condition_batch = condition_batch.to(self.device)
-                y_batch = y_batch.to(self.device)
+                if self._instance_noise_std:
+                    y_batch = self.instance_noise(y_batch, self._instance_noise_std)
                 optimizer.zero_grad()
                 loss = self.loss(y_batch, condition_batch)
+                print("log prob", loss.item())
+                if self._log_prob_grad_penalty:
+                    loss = loss + self.log_prob_grad_penalty(condition_batch, y_batch)
                 loss.backward()
                 optimizer.step()
                 loss_sum += loss.item()
