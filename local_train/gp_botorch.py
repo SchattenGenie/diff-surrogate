@@ -142,10 +142,8 @@ def bo_step(X,
                 state_dict = None
             print("Attempt #{}".format(attempts), traceback.print_exc())
 
-    # candidate = candidate / 8
-    # Update data set
     X = torch.cat([X, candidate])
-    y = torch.cat([y, objective(candidate).view(1, 1)], dim=0)
+    y = torch.cat([y, objective(candidate).detach().view(1, 1)], dim=0)
     if plot:
         utils.plot_acquisition(acquisition, X, y, candidate)
 
