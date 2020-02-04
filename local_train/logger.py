@@ -327,7 +327,7 @@ class BaseLogger(ABC):
         self._perfomance_logs['n_samples'].append(n_samples)
         self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
-        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel"]:
+        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel", "BostonNNTuning", "RosenbrockModelDegenerate", "GaussianMixtureHumpModelDeepDegenerate"]:
             self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
         else:
             self._perfomance_logs['psi_grad'].append(np.zeros_like(current_psi.detach().cpu().numpy()))
