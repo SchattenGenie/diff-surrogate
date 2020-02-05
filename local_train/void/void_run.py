@@ -13,7 +13,8 @@ from typing import List, Union
 from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
-from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, RosenbrockModelDegenerateInstrict
+from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, \
+    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate
 from optimizer import BaseOptimizer
 from typing import Callable
 import time
@@ -70,14 +71,14 @@ class VoidOptimizer(BaseOptimizer):
         f_k = self._oracle.func(self._oracle._psi, num_repetitions=5000)
         d_k = self._oracle.grad(self._oracle._psi, num_repetitions=5000)
         self._x = x_k
-        print(x_k, f_k)
         if self._num_iter % 100 == 0:
+            print(self._num_iter, f_k)
             self._logger.log_performance(y_sampler=self._oracle._y_model,
                                          current_psi=x_k,
                                          n_samples=5000, upload_pickle=False)
-            self._logger.log_grads(self._oracle,
-                                   y_sampler=self._oracle._y_model,
-                                   current_psi=x_k, num_repetitions=5000)
+            #self._logger.log_grads(self._oracle,
+            #                       y_sampler=self._oracle._y_model,
+            #                       current_psi=x_k, num_repetitions=5000)
         super()._post_step(init_time)
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
