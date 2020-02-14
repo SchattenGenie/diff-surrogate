@@ -989,7 +989,11 @@ class SHiPModel(YModel):
         xs = []
         psi = []
         for uuid in uuids:
-            print(data[uuid].keys())
+            try:
+                print(data[uuid].keys())
+            except KeyError as e:
+                print(e)
+                continue
             num_entries = len(data[uuid][self.kinematics_key])
             if num_entries == 0:
                 continue
@@ -1047,7 +1051,7 @@ class FullSHiPModel(SHiPModel):
     def __init__(self,
                  device,
                  psi_init: torch.Tensor,
-                 address: str = 'http://52.171.219.211:5433',
+                 address: str = 'http://127.0.0.1:5433',
                  x_dim=7,
                  y_dim=2):
         super().__init__(device=device, psi_init=psi_init,
@@ -1098,7 +1102,7 @@ class FullSHiPModel(SHiPModel):
         :return:
         """
         MUON = 13
-        left_margin = 2.6  # in m
+        left_margin = 2.9  # in m
         right_margin = 3  # in m
         y_margin = 5  # in m
         y = y / 100. # convert cm to m
@@ -1109,10 +1113,10 @@ class FullSHiPModel(SHiPModel):
 
         print((acceptance_mask_plus & acceptance_mask_minus).sum())
         # 1e-5 and .abs() to prevent bad gradients of sqrt(-0), which leads to NaN in .grad for psi
-        sum_term_1 = (acceptance_mask_plus.float()) * torch.sqrt(1e-5 + ((5.6 - (y[:, 0] + 3)) / 5.6).abs())
+        sum_term_1 = (acceptance_mask_plus.float()) * torch.sqrt(1e-5 + ((5.9 - (y[:, 0] + 3)) / 5.9).abs())
         # get rid of NaN
         sum_term_1[sum_term_1 != sum_term_1] = 0.
-        sum_term_2 = (acceptance_mask_minus.float()) * torch.sqrt(1e-5 + ((5.6 + (y[:, 0] - 3)) / 5.6).abs())
+        sum_term_2 = (acceptance_mask_minus.float()) * torch.sqrt(1e-5 + ((5.9 + (y[:, 0] - 3)) / 5.9).abs())
         sum_term_2[sum_term_2 != sum_term_2] = 0.
 
         sum_term = sum_term_1 + sum_term_2
