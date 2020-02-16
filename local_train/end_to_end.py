@@ -9,7 +9,7 @@ sys.path.append('../')
 sys.path.append('./RegressionNN')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
+                  LearningToSimGaussianModel, \
                   ModelDegenerate, ModelInstrict, Hartmann6, \
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, BOCKModel, \
                   RosenbrockModelDeepDegenerate, GaussianMixtureHumpModelDeepDegenerate, \
@@ -198,9 +198,6 @@ def end_to_end_training(epochs: int,
             y_sampler.scale_psi = False
             print("NEW_PSI: ", current_psi)
 
-        if type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
-            current_psi = torch.clamp(current_psi, 1e-5, 1e5)
-
         try:
             # logging optimization, i.e. statistics of psi
             logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
@@ -210,15 +207,7 @@ def end_to_end_training(epochs: int,
                                    n_samples=n_samples)
             experiment.log_metric("used_samples_per_step", used_samples)
             experiment.log_metric("sample_size", len(x))
-            # too long for ship...
-            """
-            if not isinstance(y_sampler, SHiPModel):
-                logger.log_oracle(oracle=model,
-                                  y_sampler=y_sampler,
-                                  current_psi=current_psi,
-                                  step_data_gen=step_data_gen,
-                                  num_samples=200)
-            """
+
         except Exception as e:
             print(e)
             print(traceback.format_exc())
@@ -302,10 +291,6 @@ def main(model,
     experiment.log_parameters(
         {"optimizer_{}".format(key): value for key, value in optimizer_config.get('optim_params', {}).items()}
     )
-    # experiment.log_asset("./gan_model.py", overwrite=True)
-    # experiment.log_asset("./optim.py", overwrite=True)
-    # experiment.log_asset("./train.py", overwrite=True)
-    # experiment.log_asset("../model.py", overwrite=True)
 
     logger = str_to_class(logger)(experiment)
     print("Using device = {}".format(device))

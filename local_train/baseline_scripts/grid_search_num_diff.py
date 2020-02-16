@@ -13,7 +13,7 @@ def main(optimized_function, init_psi):
     ns = [3, 5, 7, 9]
     hs = np.logspace(-3, 0, 19)
     command = "python baseline.py --project_name grid_search_num_diff_{0} \
-    --work_space schattengenie --tags n_{2},h_{3},grid_search  \
+    --work_space USERNAME --tags n_{2},h_{3},grid_search  \
     --n {2} --h {3} --optimizer_config_file  optimizer_config_num_diff \
     --optimizer TorchOptimizer --optimized_function {0}  --init_psi {1}"
     processes = []

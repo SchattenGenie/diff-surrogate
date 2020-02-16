@@ -1,6 +1,0 @@
-[submodule "local_train/ffjord"]
-  path = local_train/ffjord
-  url = https://github.com/SchattenGenie/ffjord.git
-[submodule "ffjord/ffjord"]
-  path = ffjord/ffjord
-  url = https://github.com/SchattenGenie/ffjord.git

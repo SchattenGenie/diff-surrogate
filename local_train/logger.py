@@ -327,7 +327,7 @@ class BaseLogger(ABC):
         self._perfomance_logs['n_samples'].append(n_samples)
         self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
-        if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel", "BostonNNTuning", "RosenbrockModelDegenerate", "GaussianMixtureHumpModelDeepDegenerate"]:
+        if not type(y_sampler).__name__ in ["BOCKModel", "BostonNNTuning", "RosenbrockModelDegenerate", "GaussianMixtureHumpModelDeepDegenerate"]:
             self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
         else:
             self._perfomance_logs['psi_grad'].append(np.zeros_like(current_psi.detach().cpu().numpy()))
@@ -555,22 +555,6 @@ class CometLogger(SimpleLogger):
                 pickle.dump(self._optimizer_logs['x'], f)
             self._experiment.log_asset("psi_list.pkl", overwrite=True, copy_to_tmp=False)
 
-        # if isinstance(y_sampler, SHiPModel):
-        #     prev_array = None
-        #     if upload_pickle:
-        #         if self._epoch != 0:
-        #             with open("y_hits_distr.pkl", 'rb') as f:
-        #                 prev_array = pickle.load(f)
-        #
-        #         hits_distr = y_sampler.generate(current_psi, num_repetitions=5000).cpu().numpy()
-        #         if prev_array:
-        #             hits_distr = np.hstack([prev_array, hits_distr])
-        #
-        #         with open("y_hits_distr.pkl", 'wb') as f:
-        #             pickle.dump(hits_distr, f)
-        #
-        #         self._experiment.log_asset("y_hits_distr.pkl", overwrite=True, copy_to_tmp=False)
-
         self._epoch += 1
 
     def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20, batch_size=None,
@@ -725,39 +709,6 @@ class CometLogger(SimpleLogger):
         plt.hist(gen_data[:, -1])
         self._experiment.log_figure("oracle_samples_{}".format(self._epoch), f)
         plt.close(f)
-
-    def log_ship_samples(self, oracle, y_sampler, current_psi, train_y, n_samples=100000):
-        with torch.no_grad():
-            psi_current_clone = current_psi.detach().clone()
-            x_gen = y_sampler.sample_x(n_samples).to(current_psi.device)
-            conditions = torch.cat([
-                psi_current_clone.repeat(n_samples, 1),
-                x_gen
-            ], dim=1)
-            y_gen = oracle.generate(conditions).detach().cpu().numpy()
-
-
-        f = plt.figure(figsize=(16, 6))
-        plt.subplot(1, 2, 1)
-        plt.hist2d(train_y[:, 0].cpu().numpy(), train_y[:, 1].cpu().numpy(),
-                   cmap=my_cmap, bins=100, cmin=1e-10, range=((-260, 260), (-500, 500)));
-        plt.xlabel(f"x, cm", fontsize=19)
-        plt.ylabel(f"y, cm", fontsize=19)
-        plt.title("FairShip: {}".format(len(train_y)), fontsize=15)
-        plt.gca().tick_params(axis="both", labelsize=15)
-        cbar = plt.colorbar()
-        cbar.ax.tick_params(labelsize=15)
-
-        plt.subplot(1, 2, 2)
-        plt.hist2d(y_gen[:, 0], y_gen[:, 1],
-                   cmap=my_cmap, bins=100, cmin=1e-10, range=((-260, 260), (-500, 500)));
-        plt.xlabel(f"x, cm", fontsize=19)
-        plt.ylabel(f"y, cm", fontsize=19)
-        plt.title("L-GSO: {}".format(len(y_gen)), fontsize=15)
-        plt.gca().tick_params(axis="both", labelsize=15)
-        cbar = plt.colorbar()
-        cbar.ax.tick_params(labelsize=15)
-        self._experiment.log_figure("samples_{}".format(self._epoch), f)
 
 
 class GANLogger(object):

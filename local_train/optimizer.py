@@ -15,7 +15,6 @@ import torch
 import time
 import sys
 sys.path.append('../')
-from model import SHiPModel, FullSHiPModel, SimpleSHiPModel
 from lbfgs import LBFGS, FullBatchLBFGS
 import copy
 from scipy.stats import chi2
@@ -70,12 +69,9 @@ class BaseOptimizer(ABC):
         )
 
         if not (
-                isinstance(self._oracle, SimpleSHiPModel) or
-                isinstance(self._oracle, SHiPModel) or
-                isinstance(self._oracle, FullSHiPModel) or
                 (
                         type(self._oracle).__name__ in [
-                    'SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel",
+                    "BOCKModel",
                     "BostonNNTuning", "RosenbrockModelDegenerate",
                     "GaussianMixtureHumpModelDeepDegenerate", "NumericalDifferencesModel"]
                 )
