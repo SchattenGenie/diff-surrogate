@@ -1081,3 +1081,278 @@ class BostonNNTuning(YModel):
         data = self._generate(current_psi, xs)
         mus = current_psi.repeat(n_samples_per_dim, 1).clone().detach()
         return data.reshape(-1, self._y_dim), torch.cat([mus, xs], dim=1)
+
+
+class PhysicsModelBase(YModel):
+    def __init__(self,
+                 device,
+                 psi_init: torch.Tensor,
+                 address: str = 'anon_ip',
+                 cut_veto=100,
+                 x_dim=3,
+                 y_dim=3):
+        super(YModel, self).__init__(y_model=None,
+                                     psi_dim=len(psi_init),
+                                     x_dim=x_dim, y_dim=y_dim) # hardcoded values
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._psi_dim = len(psi_init)
+        self._device = device
+        self._cut_veto = cut_veto
+        self._address = address
+        self._left_bound = -300
+        self._right_bound = 300
+        self.hits_key = "veto_points"
+        self.kinematics_key = "muons_momentum"
+        self.condition_key = "condition"
+        self.saved_muon_input_kinematics = None
+
+    def sample_x(self, num_repetitions):
+        p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
+        phi = np.random.uniform(low=0, high=2 * np.pi, size=num_repetitions)
+        theta = np.random.uniform(low=0, high=10 * np.pi / 180)
+        pz = p * np.cos(theta)
+        px = p * np.sin(theta) * np.sin(phi)
+        py = p * np.sin(theta) * np.cos(phi)
+        particle_type = np.random.choice([-13., 13.], size=num_repetitions)
+        return torch.tensor(np.c_[px, py, pz, particle_type]).float().to(self.device)
+
+    @property
+    def _y_model(self):
+        return self
+
+    @property
+    def device(self):
+        return self._device
+
+    def _request_data(self, uuid, wait=True, check_dims=True):
+        r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
+        r = json.loads(r.content)
+        if wait:
+            while r["container_status"] not in ["exited", "failed"]:
+                time.sleep(2.)
+                r = requests.post("{}/retrieve_result".format(self._address), json={"uuid": uuid})
+                r = json.loads(r.content)
+            if r["container_status"] == "failed":
+                raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
+        if check_dims and r['container_status'] == "exited":
+            assert np.array(r[self.condition_key]).shape[0] == self._psi_dim
+            assert np.array(r[self.kinematics_key]).shape[1] == self._x_dim
+            assert np.array(r[self.hits_key]).shape[1] == self._y_dim
+        return r
+
+    def _request_uuid(self, condition, num_repetitions):
+        x_begin, x_end, y_begin, y_end, z = torch.clamp(condition, 1e-5, 1e5).detach().cpu().numpy()
+        d = {
+                "field": {"Y": 4, "X": 0.0, "Z": 0},
+                "shape": {'X_begin': x_begin, "X_end": x_end,
+                          'Y_begin': y_begin, "Y_end": y_end, 'Z': z},
+                "num_repetitions": num_repetitions
+            }
+        r = requests.post(
+            "{}/simulate".format(self._address),
+            json=json.loads(json.dumps(d, cls=NumpyEncoder))
+        )
+        print(r.content, d)
+        return r.content.decode()
+
+    def _generate(self, condition, num_repetitions):
+        uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
+        time.sleep(2.)
+        data = self._request_data(uuid, wait=True)
+        return data
+
+    def _generate_multiple(self, condition, num_repetitions):
+        # making request to calculate new points
+        res = {}
+        uuids = []
+        uuids_to_condition = {}
+        for cond in condition:
+            uuid = self._request_uuid(cond, num_repetitions=num_repetitions)
+            uuids.append(uuid)
+            uuids_to_condition[uuid] = cond
+
+        uuids_original = uuids.copy()
+        # iterate over uuids
+        uuids_processed = []
+        while len(uuids):
+            time.sleep(5.)
+            for uuid in uuids:
+                answer = self._request_data(uuid, wait=False)
+                if answer["container_status"] == 'exited':
+                    res[uuid] = answer
+                    res[uuid][self.condition_key] = uuids_to_condition[uuid]
+                    uuids_processed.append(uuid)
+                    print("S ", uuid)
+                elif answer["container_status"] == 'failed':
+                    print("F ", uuid)
+                    uuids_processed.append(uuid)
+
+            uuids = list(set(uuids) - set(uuids_processed))
+        print("GM", len(res.keys()))
+        return uuids_original, res
+
+    def _func(self, condition, num_repetitions):
+        res = self._generate(condition, num_repetitions=num_repetitions)
+        y = torch.tensor(np.array(res[self.hits_key])[:, :2])
+        loss = self.loss(y, condition)
+        return loss
+
+    def _func_multiple(self, condition, num_repetitions):
+        uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+        loss = []
+        for uuid in uuids:
+            d = data.get(uuid, None)
+            loss.append(self._loss(d, condition))
+        return loss
+
+    def generate(self, condition, num_repetitions=100, **kwargs):
+        if condition.ndim == 1:
+            data = self._generate(condition, num_repetitions=num_repetitions)
+            return torch.tensor(data[self.hits_key]).float().to(condition.device)
+        elif condition.ndim == 2:
+            uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+            res = np.concatenate([data[uuid][self.hits_key] for uuid in uuids])
+            return torch.tensor(res).float().to(device=condition.device)
+
+    def func(self, condition, num_repetitions=100, **kwargs):
+        if condition.ndim == 1:
+            res = self._func(condition, num_repetitions=num_repetitions)
+        elif condition.ndim == 2:
+            res = self._func_multiple(condition, num_repetitions=num_repetitions)
+        else:
+            ValueError('No!')
+        return torch.tensor(res).float().to(device=condition.device)
+
+    def generate_local_data_lhs(self, n_samples_per_dim, step, current_psi, n_samples=2):
+        condition = torch.tensor(lhs(len(current_psi), n_samples)).float().to(self.device)
+
+        condition = step * (condition * 2 - 1) + current_psi
+        condition = torch.tensor(condition).float().to(self.device)
+        condition = torch.clamp(condition, 1e-5, 1e5)
+        uuids, data = self._generate_multiple(condition, num_repetitions=n_samples_per_dim)
+        print("ORIG ", len(uuids))
+        y = []
+        xs = []
+        psi = []
+        for uuid in uuids:
+            try:
+                print(data[uuid].keys())
+            except KeyError as e:
+                print(e)
+                continue
+            num_entries = len(data[uuid][self.kinematics_key])
+            if num_entries == 0:
+                continue
+            xs.append(data[uuid][self.kinematics_key])
+            y.append(data[uuid][self.hits_key])
+            cond = data[uuid][self.condition_key]
+            psi.append(cond.repeat(num_entries, 1))
+        if len(xs) == len(y) == 0:
+            return None, None
+        xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
+        self.saved_muon_input_kinematics = xs
+        y = torch.tensor(np.concatenate(y)).float().to(self.device)
+        psi = torch.cat(psi)
+
+        return y[:, :2], torch.cat([psi, xs], dim=1)
+
+    def fit(self, y, condition):
+        pass
+
+    def log_density(self, y, condition):
+        pass
+
+    def grad(self, condition: torch.Tensor, num_repetitions: int = None) -> torch.Tensor:
+        condition = condition.detach().clone().to(self.device)
+        condition.requires_grad_(True)
+        return torch.zeros_like(condition)
+
+
+class PhysicsModel(PhysicsModelBase):
+    def __init__(self,
+                 device,
+                 psi_init: torch.Tensor,
+                 address: str = 'anon_ip',
+                 x_dim=7,
+                 y_dim=2):
+        super().__init__(device=device, psi_init=psi_init,
+                         address=address, x_dim=x_dim, y_dim=y_dim)
+        self._psi_dist = dist.Delta(psi_init.to(device))
+        self._psi_dim = len(psi_init)
+        self.hits_key = "veto_points"
+        self.kinematics_key = "kinematics"
+        self.condition_key = "params"
+        self.scale_psi = False
+
+    def sample_x(self, num_repetitions):
+        sample_indices = np.random.choice(
+            range(len(self.saved_muon_input_kinematics)),
+            num_repetitions,
+            replace=True
+        )
+        return self.saved_muon_input_kinematics[sample_indices]
+
+    def _request_uuid(self, condition, num_repetitions):
+        d = {"shape": condition.detach().cpu().numpy().tolist(),
+             "n_events": num_repetitions}
+        print("request_params", d)
+        r = requests.post(
+            "{}/simulate".format(self._address),
+            json=json.loads(json.dumps(d))
+        )
+        print("content", r.content)
+        return r.content.decode()
+
+    def request_params(self, condition):
+        d = {"shape": condition.detach().cpu().numpy().tolist()}
+        print("request_params", d)
+        r = requests.post(
+            "{}/retrieve_params".format(self._address),
+            json=json.loads(json.dumps(d))
+        )
+        print("content", r.content)
+        return json.loads(r.content)
+
+    def loss(self, y, conditions):
+        """
+        :param y: 2D distribution of hits
+        :param conditions: full matrix of conditions(magenet and kinematic)
+        :return:
+        """
+        MUON = 13
+        left_margin = 2.9  # in m
+        right_margin = 3  # in m
+        y_margin = 5  # in m
+        y = y / 100. # convert cm to m
+        print("inside loss kinematics example value: {}".format(conditions[0, self._psi_dim:]))
+
+        acceptance_mask_plus = (y[:, 0] <= left_margin) & (-right_margin <= y[:, 0]) & (torch.abs(y[:, 1]) < y_margin) & (conditions[:, -1] == MUON)
+        acceptance_mask_minus = (y[:, 0] <= right_margin) & (-left_margin <= y[:, 0]) & (torch.abs(y[:, 1]) < y_margin) & (conditions[:, -1] == -MUON)
+
+        print((acceptance_mask_plus & acceptance_mask_minus).sum())
+        # 1e-5 and .abs() to prevent bad gradients of sqrt(-0), which leads to NaN in .grad for psi
+        sum_term_1 = (acceptance_mask_plus.float()) * torch.sqrt(1e-5 + ((5.9 - (y[:, 0] + 3)) / 5.9).abs())
+        # get rid of NaN
+        sum_term_1[sum_term_1 != sum_term_1] = 0.
+        sum_term_2 = (acceptance_mask_minus.float()) * torch.sqrt(1e-5 + ((5.9 + (y[:, 0] - 3)) / 5.9).abs())
+        sum_term_2[sum_term_2 != sum_term_2] = 0.
+
+        sum_term = sum_term_1 + sum_term_2
+
+        hits_loss = sum_term * len(sum_term)
+
+        return hits_loss
+
+
+    def _func(self, condition, num_repetitions):
+        res = self._generate(condition, num_repetitions=num_repetitions)
+        y = torch.tensor(res[self.hits_key])[:, :2].float().to(self._device)
+        xs = torch.tensor(res[self.kinematics_key]).float().to(self._device)
+        psi = np.array(res[self.condition_key])
+        num_entries = len(xs)
+        psi = psi.reshape(1, self._psi_dim).repeat(num_entries, 0)
+        psi = torch.tensor(psi).float().to(self._device)
+        # TODO: fix in case of 0 entries
+        conditions = torch.cat([psi, xs], dim=1)
+        loss = self.loss(y, conditions)
+        return loss
