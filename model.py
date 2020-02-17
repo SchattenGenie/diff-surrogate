@@ -1062,6 +1062,7 @@ class FullSHiPModel(SHiPModel):
         self.kinematics_key = "kinematics"
         self.condition_key = "params"
         self.scale_psi = False
+        self.params_precision = 1
 
     def sample_x(self, num_repetitions):
         # TODO: For now use boostrap, once
@@ -1074,8 +1075,9 @@ class FullSHiPModel(SHiPModel):
         return self.saved_muon_input_kinematics[sample_indices]
 
     def _request_uuid(self, condition, num_repetitions):
-        d = {"shape": condition.detach().cpu().numpy().tolist(),
-             "n_events": num_repetitions}
+        d = {"shape": list(map(lambda x: round(x, self.params_precision), condition.detach().cpu().numpy().tolist())),
+             "n_events": num_repetitions,
+             "n_jobs": 16}
         print("request_params", d)
         r = requests.post(
             "{}/simulate".format(self._address),
@@ -1085,7 +1087,7 @@ class FullSHiPModel(SHiPModel):
         return r.content.decode()
 
     def request_params(self, condition):
-        d = {"shape": condition.detach().cpu().numpy().tolist()}
+        d = {"shape": list(map(lambda x: round(x, self.params_precision), condition.detach().cpu().numpy().tolist()))}
         print("request_params", d)
         r = requests.post(
             "{}/retrieve_params".format(self._address),
