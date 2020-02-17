@@ -5,9 +5,17 @@
 - [] ?
 
 
-## Run instructions:
-```cd /diff-surrogate/local_train```
+## Run instructions (working with GAN):
+- create an environment with conda yml file: ```conda env create -f conda_env.yml```
 
+- ```cd /diff-surrogate/local_train```. 
+- Execute the commands below for the particular experiment.
+
+In case you also want to check FFJORD you need to install
+
+```pip install git+https://github.com/rtqichen/torchdiffeq```
+
+## To reproduce experiments
 - Three Hump Model
 ```code```
 - Rosenbrock 10dim
