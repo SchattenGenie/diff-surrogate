@@ -4,7 +4,6 @@ import matplotlib.patches as patches
 from collections import defaultdict
 from sklearn.metrics import auc
 from scipy.spatial.distance import cosine
-from prd_score import compute_prd_from_embedding
 import lhsmdu
 import numpy as np
 import torch

@@ -4,7 +4,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.autograd import grad
-from hessian import hessian as hessian_calc
 import sys
 
 

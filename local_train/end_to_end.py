@@ -14,22 +14,17 @@ from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianM
                   RosenbrockModelInstrict, RosenbrockModelDegenerate, RosenbrockModelDegenerateInstrict, BOCKModel, \
                   RosenbrockModelDeepDegenerate, GaussianMixtureHumpModelDeepDegenerate, \
                   GaussianMixtureHumpModelDegenerate, RosenbrockModelDeepDegenerate, BostonNNTuning
-from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
-from ffjord_model import FFJORDModel
-from gmm_model import GMMModel
+#from ffjord_model import FFJORDModel
 from gan_model import GANModel
-from linear_model import LinearModelOnPsi
 from optimizer import *
 from logger import SimpleLogger, CometLogger, GANLogger, RegressionLogger
 from base_model import BaseConditionalGenerationOracle, ShiftedOracle
 from constraints_utils import make_box_barriers, add_barriers_to_oracle
 from experience_replay import ExperienceReplay, ExperienceReplayAdaptive
-from adaptive_borders import AdaptiveBorders
 REWEIGHT = False
 if REWEIGHT:
     from hep_ml import reweight
 from base_model import average_block_wise
-from RegressionNN.regression_model import RegressionModel, RegressionRiskModel
 
 
 def get_freer_gpu():
