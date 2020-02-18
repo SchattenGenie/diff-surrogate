@@ -20,10 +20,10 @@ import json
 import time
 import os
 
-
 from tqdm import trange
 from sklearn.preprocessing import StandardScaler
 from sklearn.datasets import fetch_openml
+
 
 def average_block_wise(x, num_repetitions):
     n = x.shape[0]
@@ -33,9 +33,9 @@ def average_block_wise(x, num_repetitions):
                             stride=num_repetitions).view(-1)
     elif len(x.shape) == 2:
         cols = x.shape[1]
-        return F.avg_pool1d(x.view(1, cols, n),
+        return F.avg_pool1d(x.unsqueeze(0).transpose(1, 2),
                             kernel_size=num_repetitions,
-                            stride=num_repetitions).view(-1, cols)
+                            stride=num_repetitions)[0].transpose(1, 0)
     else:
         NotImplementedError("average_block_wise do not support >2D tensors")
 
