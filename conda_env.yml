@@ -21,4 +21,5 @@ dependencies:
     - lhsmdu 
     - pytorch-swats 
     - sobol_seq
-
+    - gpytorch
+    - botorch
