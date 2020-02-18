@@ -19,7 +19,7 @@ def main(model, model_config_file, optimized_function, init_psi):
     else:
         n_samples_search = [int(np.ceil(psi_dim / 4)), int(np.ceil(psi_dim / 2)), psi_dim, 2 * psi_dim]
     command = "python end_to_end.py --model {0} --project_name grid_search_{2} \
-    --work_space schattengenie --model_config_file {1} --tags {0},{2},grid_search \
+    --work_space JhonDoe --model_config_file {1} --tags {0},{2},grid_search \
     --optimizer TorchOptimizer --optimized_function {2}  --init_psi {3} \
     --n_samples {4} --lr 0.1 --step_data_gen {5} --reuse_optimizer True"
     processes = []
