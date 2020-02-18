@@ -16,7 +16,7 @@ import click
 @click.option('--cv', type=int, default=5)
 def main(model, model_config_file, n_samples, lr, step_data_gen, cv, optimized_function, init_psi):
     command = "python end_to_end.py --model {0} --project_name cv_{2} \
-    --work_space schattengenie --model_config_file {1} --tags {0},{2},cv \
+    --work_space JhonDoe --model_config_file {1} --tags {0},{2},cv \
     --optimizer TorchOptimizer --optimized_function {2}  --init_psi {3} \
     --n_samples {4} --lr {5} --reuse_optimizer True --step_data_gen {6}"
     processes = []
