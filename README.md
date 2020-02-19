@@ -1,9 +1,4 @@
 # diff-surrogate
-- [ ] Add full example on how to run a code end to end in the README:
-  - [ ] Add the run command for all the experiments we have run, and table of initial opt/GAN params.
-- [x] Add back anonymised SHiP model.
-- [] ?
-
 
 ## Run instructions (working with GAN):
 - create an environment with conda yml file: ```conda env create -f conda_env.yml```
@@ -18,20 +13,20 @@ In case you also want to check FFJORD you need to install
 ## GAN surrogate parameters
 | Simulator Model | task | y_dim | x_dim | noise_dim | lr | batch_size | epochs | iters_discriminator | iters_generator | instance_noise_std | dis_output_dim | grad_penalty | gp_reg_coeff |
 |:---:         |     :---:      |          :---: |:---:         |     :---:      |          :---: |:---:         |     :---:      |          :---: |:---:         |     :---:      |          :---: |:---:         |     :---:      |
-| Three Hump Model |x|x|x|x|x|x|x|x|x|x|x|x|x|x|
-| Rosenbrock 10dim  |x|x|x|x|x|x|x|x|x|x|x|x|x|x|
-| Rosenbrock submanifold 100dim |x|x|x|x|x|x|x|x|x|x|x|x|x|x|
-| Three Hump submanifold 40dim  |x|x|x|x|x|x|x|x|x|x|x|x|x|x|
-| Neural network optimisation |x|x|x|x|x|x|x|x|x|x|x|x|x|x|
+| Three Hump Model |CRAMER|1|2|150|8e-4|512|15|1|1|0.01|256|True|10|x|
+| Rosenbrock 10dim  |CRAMER|1|1|150|8e-4|512|15|1|1|0.01|256|True|10|x|
+| Rosenbrock submanifold 100dim |CRAMER|1|1|150|8e-4|512|15|1|1|0.01|256|True|10|x|
+| Three Hump submanifold 40dim  |CRAMER|1|1|150|8e-4|512|15|1|1|0.01|256|True|10|x|
+| Neural network optimisation |CRAMER|1|13|150|8e-4|512|15|1|1|0.01|256|True|10|x|
 
 ## Optimizer parameters parameters
-| Simulator Model | task | torch_model | num_repetitions
+| Simulator Model | lr | torch_model | num_repetitions
 |:---:         |     :---:      |          :---: |:---:         |
-| Three Hump Model |x|x|x|
-| Rosenbrock 10dim  |x|x|x|
-| Rosenbrock submanifold 100dim |x|x|x|
-| Three Hump submanifold 40dim  |x|x|x|
-| Neural network optimisation |x|x|x|
+| Three Hump Model |0.1|Adam|10000|
+| Rosenbrock 10dim  |0.1|Adam|10000|
+| Rosenbrock submanifold 100dim |0.1|Adam|10000|
+| Three Hump submanifold 40dim  |0.1|Adam|10000|
+| Neural network optimisation |0.1|Adam|10000|
 
 
 
