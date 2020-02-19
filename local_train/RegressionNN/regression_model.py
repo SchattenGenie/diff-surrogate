@@ -14,7 +14,7 @@ class RegressionModel(BaseConditionalGenerationOracle):
                  epochs: int,
                  lr: float,
                  predict_risk: bool,
-                 logger=None):
+                 logger=None, **kwargs):
         super(RegressionModel, self).__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         self._lr = lr
         self._epochs = epochs
@@ -23,7 +23,7 @@ class RegressionModel(BaseConditionalGenerationOracle):
         self._predict_risk = predict_risk
         self._output_dim = 1 if self._predict_risk else y_dim
         self._net = RegressionNet(self._output_dim, psi_dim=psi_dim, x_dim=x_dim)
-        self.logger = logger
+        self.logger = None  # logger
         self._losses = RegressionLosses()
         self.attention_net = None
 
