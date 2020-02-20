@@ -168,7 +168,8 @@ def main(
         # if iter % 10 == 0:
         if not (isinstance(y_model, SHiPModel) or isinstance(y_model, SimpleSHiPModel)):
             pass
-            # logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
+
+        logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
         logger.log_performance(y_sampler=y_model,
                                current_psi=current_psi,
                                n_samples=5000)
