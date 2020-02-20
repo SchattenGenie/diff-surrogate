@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 from torch import optim
+import sys
+sys.path.append('../')
 from base_model import BaseConditionalGenerationOracle
 import pyro
 from pyro import distributions as dist
@@ -25,10 +27,10 @@ class NormalPolicy:
         pass
 
     def __call__(self, mu, sigma, N=1):
-        return pyro.sample("psi", dist.Normal(mu.repeat(N, 1), (1 + sigma.repeat(N, 1).exp()).log()))
+        return pyro.sample("psi", dist.Normal(mu.repeat(N, 1), (1. + sigma.repeat(N, 1).exp()).log()))
 
     def log_prob(self, mu, sigma, x):
-        return dist.Normal(mu, (1 + sigma.exp()).log()).log_prob(x)
+        return dist.Normal(mu, (1. + sigma.exp()).log()).log_prob(x)
 
 
 class VoidModel(BaseConditionalGenerationOracle):
@@ -56,24 +58,25 @@ class VoidModel(BaseConditionalGenerationOracle):
         self._control_variate_parameters = list(self._control_variate.parameters())
         self._sigma = torch.zeros(psi_dim, requires_grad=True, device=self._device)
         self._num_repetitions = num_repetitions
-        self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters)
+        self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters, lr=1e-2)
 
     def grad(self, condition: torch.Tensor, **kwargs) -> torch.Tensor:
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
+        x_grad_total = torch.zeros_like(condition)
+        for k in range(self._K):
+            action = self._policy(condition, self._sigma, N=1)
+            r = self._y_model.func(action, num_repetitions=self._num_repetitions).detach().view(1)
+            c = self._control_variate(action).view(1)
+            log_prob = self._policy.log_prob(mu=condition, sigma=self._sigma, x=action.detach())
 
-        action = self._policy(condition, self._sigma, N=self._K)
-        r = self._y_model.func(action, num_repetitions=self._num_repetitions).view(-1, 1)
-        c = self._control_variate(action)
-        log_prob = self._policy.log_prob(mu=condition, sigma=self._sigma, x=action.detach()).mean()
+            x_grad_1, sigma_grad_1 = grad([log_prob.sum()], [condition, self._sigma], retain_graph=True, create_graph=True)
+            x_grad_2, sigma_grad_2 = grad([c.mean()], [condition, self._sigma], retain_graph=True, create_graph=True)
 
-        x_grad_1, sigma_grad_1 = grad([log_prob], [condition, self._sigma], retain_graph=True, create_graph=True)
-        x_grad_2, sigma_grad_2 = grad([c.mean()], [condition, self._sigma], retain_graph=True, create_graph=True)
+            x_grad = x_grad_1 * (r - c) + x_grad_2
+            x_grad_total += x_grad / self._K
 
-        x_grad = x_grad_1 * (r - c) + x_grad_2
-        sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
-
-        return x_grad.mean(dim=0).clone().detach()
+        return x_grad_total.clone().detach()
 
     def step(self):
         self._optimizer.zero_grad()
@@ -82,25 +85,27 @@ class VoidModel(BaseConditionalGenerationOracle):
         for parameter in self._control_variate_parameters:
             parameter.grad = torch.zeros_like(parameter)
 
-        action = self._policy(self._psi, self._sigma, N=self._K)
-        r = self._y_model.func(action, num_repetitions=self._num_repetitions).view(-1, 1)
-        c = self._control_variate(action)
-        log_prob = self._policy.log_prob(mu=self._psi, sigma=self._sigma, x=action.detach()).mean()
+        for k in range(self._K):
+            action = self._policy(self._psi, self._sigma, N=1)
+            r = self._y_model.func(action, num_repetitions=self._num_repetitions).view(1)
+            c = self._control_variate(action).view(1)
+            log_prob = self._policy.log_prob(mu=self._psi, sigma=self._sigma, x=action.detach())
 
-        x_grad_1, sigma_grad_1 = grad([log_prob], [self._psi, self._sigma], retain_graph=True, create_graph=True)
-        x_grad_2, sigma_grad_2 = grad([c.mean()], [self._psi, self._sigma], retain_graph=True, create_graph=True)
+            x_grad_1, sigma_grad_1 = grad([log_prob.sum()], [self._psi, self._sigma], retain_graph=True, create_graph=True)
+            x_grad_2, sigma_grad_2 = grad([c.mean()], [self._psi, self._sigma], retain_graph=True, create_graph=True)
+            x_grad = x_grad_1 * (r - c) + x_grad_2
+            sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
 
-        x_grad = x_grad_1 * (r - c) + x_grad_2
-        sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
+            parameters_grad = grad(
+                [(x_grad.pow(2).mean() + sigma_grad.pow(2).mean())],
+                self._control_variate_parameters
+            )
 
-        parameters_grad = grad([x_grad.mean(dim=0).pow(2).mean() + sigma_grad.mean(dim=0).pow(2).mean()],
-                                self._control_variate_parameters)
-
-        with torch.no_grad():
-            self._psi.grad = x_grad.mean(dim=0).clone().detach()
-            self._sigma.grad = sigma_grad.mean(dim=0).clone().detach()
-            for parameter, parameter_grad in zip(self._control_variate_parameters, parameters_grad):
-                parameter.grad = parameter_grad.clone().detach()
+            with torch.no_grad():
+                self._psi.grad += x_grad.clone().detach() / self._K
+                self._sigma.grad += sigma_grad.clone().detach() / self._K
+                for parameter, parameter_grad in zip(self._control_variate_parameters, parameters_grad):
+                    parameter.grad += parameter_grad.clone().detach()  / self._K
         self._optimizer.step()
 
     def fit(self, x, current_psi):
