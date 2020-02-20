@@ -40,7 +40,8 @@ class VoidModel(BaseConditionalGenerationOracle):
                  x_dim: int,
                  K: int,
                  num_repetitions: int,
-                 lr: float = 1.):
+                 lr: float,
+                 cv_lr):
         super().__init__(y_model=y_model, x_dim=x_dim, psi_dim=psi_dim, y_dim=y_dim)
         # self._psi = init_psi.clone()
         self._device = y_model.device
@@ -50,13 +51,17 @@ class VoidModel(BaseConditionalGenerationOracle):
         self._x_dim = x_dim
         self._K = K
         self._lr = lr
-        self._alpha_k = self._lr
+        self._cv_lr = cv_lr
         self._policy = NormalPolicy()
         self._control_variate = ControlVariate(psi_dim).to(self._device)
         self._control_variate_parameters = list(self._control_variate.parameters())
         self._sigma = torch.zeros(psi_dim, requires_grad=True, device=self._device)
         self._num_repetitions = num_repetitions
-        self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters)
+
+        # We can define two optimizers or use one, I did not notice much difference
+        # self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters)
+        self._optimizer_theta = optim.Adam(params=[self._psi, self._sigma], lr=self._lr)
+        self._optimizer_cv = optim.Adam(params=self._control_variate_parameters, lr=self._cv_lr)
 
     def grad(self, condition: torch.Tensor, **kwargs) -> torch.Tensor:
         condition = condition.detach().clone().to(self.device)
@@ -76,7 +81,8 @@ class VoidModel(BaseConditionalGenerationOracle):
         return x_grad.mean(dim=0).clone().detach()
 
     def step(self):
-        self._optimizer.zero_grad()
+        self._optimizer_theta.zero_grad()
+        self._optimizer_cv.zero_grad()
         self._psi.grad = torch.zeros_like(self._psi)
         self._sigma.grad = torch.zeros_like(self._sigma)
         for parameter in self._control_variate_parameters:
@@ -93,15 +99,19 @@ class VoidModel(BaseConditionalGenerationOracle):
         x_grad = x_grad_1 * (r - c) + x_grad_2
         sigma_grad = sigma_grad_1 * (r - c) + sigma_grad_2
 
+        # parameters_grad = grad([x_grad.mean(dim=0).pow(2).mean() + sigma_grad.mean(dim=0).pow(2).mean()],
+        #                         self._control_variate_parameters)
         parameters_grad = grad([x_grad.mean(dim=0).pow(2).mean() + sigma_grad.mean(dim=0).pow(2).mean()],
                                 self._control_variate_parameters)
+
 
         with torch.no_grad():
             self._psi.grad = x_grad.mean(dim=0).clone().detach()
             self._sigma.grad = sigma_grad.mean(dim=0).clone().detach()
             for parameter, parameter_grad in zip(self._control_variate_parameters, parameters_grad):
                 parameter.grad = parameter_grad.clone().detach()
-        self._optimizer.step()
+        self._optimizer_theta.step()
+        self._optimizer_cv.step()
 
     def fit(self, x, current_psi):
         pass
