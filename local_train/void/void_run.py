@@ -57,10 +57,14 @@ class VoidOptimizer(BaseOptimizer):
                  oracle: BaseConditionalGenerationOracle,
                  x: torch.Tensor,
                  logger: Callable,
+                 num_repetitions: int,
+                 n_samples: int,
                  *args, **kwargs):
         super().__init__(oracle, x, *args, **kwargs)
         self._x.requires_grad_(True)
         self._logger = logger
+        self._num_repetitions = num_repetitions
+        self._n_samples = n_samples
 
     def _step(self):
         init_time = time.time()
@@ -68,17 +72,17 @@ class VoidOptimizer(BaseOptimizer):
         self._oracle.step()
 
         x_k = self._oracle._psi.clone().detach()
-        f_k = self._oracle.func(self._oracle._psi, num_repetitions=5000)
-        d_k = self._oracle.grad(self._oracle._psi, num_repetitions=5000)
+        f_k = self._oracle.func(self._oracle._psi, num_repetitions=self._num_repetitions)
+        d_k = self._oracle.grad(self._oracle._psi, num_repetitions=self._num_repetitions)
         self._x = x_k
-        if self._num_iter % 100 == 0:
+        if self._num_iter % 10 == 0:
             print(self._num_iter, f_k)
             self._logger.log_performance(y_sampler=self._oracle._y_model,
                                          current_psi=x_k,
-                                         n_samples=5000, upload_pickle=False)
-            #self._logger.log_grads(self._oracle,
-            #                       y_sampler=self._oracle._y_model,
-            #                       current_psi=x_k, num_repetitions=5000)
+                                         n_samples=self._n_samples, upload_pickle=False)
+            self._logger.log_grads(self._oracle,
+                                  y_sampler=self._oracle._y_model,
+                                  current_psi=x_k, num_repetitions=5000)
         super()._post_step(init_time)
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
@@ -98,6 +102,7 @@ class VoidOptimizer(BaseOptimizer):
 @click.option('--work_space', type=str, prompt='Enter workspace name')
 @click.option('--tags', type=str, prompt='Enter tags comma separated')
 @click.option('--init_psi', type=str, default="0., 0.")
+@click.option('--n_samples_per_dim', type=int, default=3000)
 def main(
         logger,
         optimized_function,
@@ -107,8 +112,10 @@ def main(
         work_space,
         tags,
         init_psi,
+        n_samples_per_dim,
 ):
     model_config = getattr(__import__(model_config_file), 'model_config')
+    model_config["num_repetitions"] = n_samples_per_dim
     optimizer_config = getattr(__import__(optimizer_config_file), 'optimizer_config')
     init_psi = torch.tensor([float(x.strip()) for x in init_psi.split(',')]).float().to(device)
     psi_dim = len(init_psi)
@@ -123,6 +130,10 @@ def main(
     experiment.log_parameters(
         {"optimizer_{}".format(key): value for key, value in optimizer_config.get('line_search_options', {}).items()}
     )
+    experiment.log_parameters(
+        {"model_{}".format(key): value for key, value in model_config.items()}
+    )
+
 
     logger = str_to_class(logger)(experiment)
     y_model = optimized_function_cls(device=device, psi_init=init_psi)
@@ -134,6 +145,7 @@ def main(
         oracle=model,
         x=init_psi,
         logger=logger,
+        n_samples=model_config["K"],
         **optimizer_config)
 
     current_psi, status, history = optimizer.optimize()

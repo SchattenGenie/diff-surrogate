@@ -575,17 +575,17 @@ class CometLogger(SimpleLogger):
 
     def log_grads(self, oracle, y_sampler, current_psi, num_repetitions, n_samples=20, batch_size=None,
                   log_grad_diff=True):
-        #_current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
-        _current_psi = current_psi.clone().detach()
+        _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
 
         # LTS does not support vectorized psis yet, so we use loop
         if type(oracle).__name__ in ["LearnToSimModel", "VoidModel", "NumericalDifferencesModel"]:
             model_grads_list = []
-            _current_psi = current_psi.clone().detach().view(1, -1).repeat(n_samples, 1)
             for index in range(n_samples):
                 model_grads_list.append(oracle.grad(_current_psi[index, :],
                                                     update_baselines=False, update_policy=False).detach())
-            model_grad_value = torch.stack(model_grads_list).detach()
+            if len(model_grads_list[0].size()) == 1:
+                model_grads_list = list(map(lambda x: x.reshape(1, -1), model_grads_list))
+            model_grad_value = torch.cat(model_grads_list, dim=0).detach()
         else:
             # TODO: check gradient estimation
             if batch_size:
@@ -597,23 +597,22 @@ class CometLogger(SimpleLogger):
             else:
                 model_grad_value = oracle.grad(_current_psi, num_repetitions=num_repetitions)
 
-        # print(model_grad_value.shape, true_grad_value.shape)
+        #print("0",model_grad_value.shape)
 
-        model_grad_value = model_grad_value.view(1, -1)
         self._experiment.log_metric('Mean grad norm', torch.norm(torch.mean(model_grad_value, dim=0, keepdim=True),
                                                                  dim=1).item(), step=self._epoch)
         self._experiment.log_metric('Mean grad var', torch.norm(torch.var(model_grad_value, dim=0, keepdim=True),
                                                                 dim=1).item(), step=self._epoch)
-
 
         model_grad_value = model_grad_value.mean(dim=0)
         model_grad_value /= model_grad_value.norm()
 
         if log_grad_diff:
             true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
+            #print("2", true_grad_value.shape)
             true_grad_value = true_grad_value.mean(dim=0)
             true_grad_value /= true_grad_value.norm()
-            # print(model_grad_value.shape, true_grad_value.shape)
+            #print("3", model_grad_value.shape, true_grad_value.shape)
             self._experiment.log_metric('Mean grad diff',
                                         torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
 
