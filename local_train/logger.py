@@ -348,7 +348,7 @@ class SimpleLogger(BaseLogger):
 
         figure, axs = plt.subplots(3, 2, figsize=(9 * 2, 9 * 3))
 
-        losses = np.array(self._optimizer_logs['func'])
+        losses = np.array(self._optimizer_logs['func']).ravel()
         axs[0][0].plot(losses)
         axs[0][0].grid()
         axs[0][0].set_ylabel("Loss", fontsize=19)
@@ -609,10 +609,8 @@ class CometLogger(SimpleLogger):
 
         if log_grad_diff:
             true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
-            # print("2", true_grad_value.shape)
             true_grad_value = true_grad_value.mean(dim=0)
             true_grad_value /= true_grad_value.norm()
-            # print("3", model_grad_value.shape, true_grad_value.shape)
             self._experiment.log_metric('Mean grad diff',
                                         torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
 

@@ -100,8 +100,8 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
-    gan_logger = GANLogger(experiment)
-    # gan_logger = RegressionLogger(experiment)
+    #gan_logger = GANLogger(experiment)
+    gan_logger = RegressionLogger(experiment)
     # gan_logger = None
 
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
@@ -144,7 +144,6 @@ def end_to_end_training(epochs: int,
         if model_config.get("predict_risk", False):
             condition = condition[::n_samples_per_dim, :current_psi.shape[0]]
             x = y_sampler.func(condition, num_repetitions=n_samples_per_dim).reshape(-1, x.shape[1])
-        print(x.shape, condition.shape)
         ## Scale train set
         if scale_psi:
             scale_factor = 10
