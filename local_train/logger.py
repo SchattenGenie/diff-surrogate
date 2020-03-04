@@ -128,11 +128,14 @@ class FuncSaver(object):
         time.sleep(5.)
         return "!S!"
 
-    def submit_job(self, current_psi, func, epoch, num_repetitions=485879):
+    def submit_job(self, current_psi, func, epoch, num_repetitions=None):
+        if num_repetitions is None:
+            num_repetitions = 485879
         thread = Thread(target=lambda index, psi, num_repetitions: self.insert(
                             *(index, func(psi, num_repetitions=num_repetitions).detach().cpu().numpy())),
                             args=(epoch, current_psi, num_repetitions)
                         )
+        print("Start evaluation thread")
         thread.start()
         self.threads_queue.append(thread)
 
@@ -325,7 +328,7 @@ class BaseLogger(ABC):
         self._perfomance_logs['time'].append(time.time() - self._time)
         self._time = time.time()
         self._perfomance_logs['n_samples'].append(n_samples)
-        self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
+        # self._perfomance_logs['func'].append(y_sampler.func(current_psi, num_repetitions=100000).detach().cpu().numpy())
         self._perfomance_logs['psi'].append(current_psi.detach().cpu().numpy())
         if not type(y_sampler).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel', "BOCKModel", "BostonNNTuning", "RosenbrockModelDegenerate", "GaussianMixtureHumpModelDeepDegenerate"]:
             self._perfomance_logs['psi_grad'].append(y_sampler.grad(current_psi, num_repetitions=10000).detach().cpu().numpy())
@@ -533,13 +536,12 @@ class CometLogger(SimpleLogger):
 
         # self.log_gan_samples(oracle, y_sampler, current_psi)
 
-    def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True):
+    def log_performance(self, y_sampler, current_psi, n_samples, upload_pickle=True, num_repetitions=None):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
         self._experiment.log_metric('Time spend', self._perfomance_logs['time'][-1], step=self._epoch)
-        # TODO: breaks thing with copy.deepcopy in Trust Region
-        # self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch, 10000)
-        # self.func_saver.update()
-        self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
+        self.func_saver.submit_job(current_psi, y_sampler.func, self._epoch, num_repetitions=num_repetitions)
+        self.func_saver.update()
+        # self._experiment.log_metric('Func value', self._perfomance_logs['func'][-1], step=self._epoch)
         self._experiment.log_metric('Used samples', self._perfomance_logs['n_samples'][-1], step=self._epoch)
         self._experiment.log_metric('Used samples cumm', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)
         psis = self._perfomance_logs['psi'][-1]
