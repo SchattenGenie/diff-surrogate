@@ -143,7 +143,12 @@ def bo_step(X,
             print("Attempt #{}".format(attempts), traceback.print_exc())
 
     X = torch.cat([X, candidate])
-    y = torch.cat([y, objective(candidate).detach().view(1, 1)], dim=0)
+    print("CANDIDATE", candidate.shape)
+    print("Qeuery points")
+    objective_values = torch.cat([objective_value.mean().detach().view(1, 1)
+                                  for objective_value in objective(candidate)], dim=0)
+    y = torch.cat([y, objective_values], dim=0)
+    #y = torch.cat([y, objective(candidate).detach().view(1, 1)], dim=0)
     if plot:
         utils.plot_acquisition(acquisition, X, y, candidate)
 

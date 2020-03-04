@@ -215,8 +215,6 @@ def end_to_end_training(epochs: int,
                                    n_samples=n_samples)
             experiment.log_metric("used_samples_per_step", used_samples)
             experiment.log_metric("sample_size", len(x))
-            if use_adaptive_borders:
-                adaptive_border.log(experiment)
             # too long for ship...
             """
             if not isinstance(y_sampler, SHiPModel):

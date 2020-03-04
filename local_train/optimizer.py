@@ -65,10 +65,11 @@ class BaseOptimizer(ABC):
         self._history['func_evals'].append(
             self._oracle._n_calls - self._previous_n_calls
         )
-        self._history['func'].append(
-            self._oracle.func(self._x,
-                              num_repetitions=self._num_repetitions).detach().cpu().numpy()
-        )
+        if not type(self._oracle).__name__ in ['FullSHiPModel']:
+            self._history['func'].append(
+                self._oracle.func(self._x,
+                                  num_repetitions=self._num_repetitions).detach().cpu().numpy()
+            )
 
         if not (
                 isinstance(self._oracle, SimpleSHiPModel) or
@@ -827,12 +828,18 @@ class BOCKOptimizer(BaseOptimizer):
             ],
             dim=0
         )
-        func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
-        func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_)
-        func_x_t = [
-            self._oracle._y_model.loss(*self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t)).detach()
-            for x_t in x_tmp
-        ]
+
+        self._x = torch.clamp(self._x, 1e-5, 1e5)
+        x_tmp = torch.clamp(x_tmp, 1e-5, 1e5)
+        func_x_ = self._oracle._y_model._func(condition=self._x, num_repetitions=self._num_repetitions)
+        func_x_t = self._oracle._y_model._func_multiple(x_tmp, self._num_repetitions)
+        #func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
+        #func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_)
+        # func_x_t = [
+        #     self._oracle._y_model.loss(*self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=x_t)).detach()
+        #     for x_t in x_tmp
+        # ]
+
         self._y_dataset = torch.cat(
             [
                 self._y_dataset,
@@ -863,7 +870,7 @@ class BOCKOptimizer(BaseOptimizer):
         print(self._X_dataset.shape, self._y_dataset.shape)
         GP = lambda X, y, noise, borders: CustomCylindricalGP(X, y.view(-1, 1), noise, borders)
         acquisition = lambda gp, y: ExpectedImprovement(gp, y.min(), maximize=False)
-        objective = lambda x: self._oracle._y_model.func(x, num_repetitions=self._num_repetitions)  # .view(-1, 1)
+        objective = lambda x: self._oracle._y_model._func_multiple(torch.clamp(x, 1e-5, 1e5), num_repetitions=self._num_repetitions)  # .view(-1, 1)
         print("_y_dataset", self._y_dataset[-1], self._X_dataset[-1], self._y_noise[-1])
         X, y, gp = bo_step(
             self._X_dataset,
@@ -882,14 +889,19 @@ class BOCKOptimizer(BaseOptimizer):
         self._y_dataset = y
         f_k = self._y_dataset[-1]  # or best?
         x_k = self._X_dataset[-1]
-        func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
-        func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_).detach()
+        #func_x_, conditions_ = self._oracle._y_model.generate_data_at_point(n_samples_per_dim=self._num_repetitions, current_psi=self._x)
+        #func_x_ = self._oracle._y_model.loss(func_x_, conditions=conditions_).detach()
+        self._x = torch.clamp(self._x, 1e-5, 1e5)
+        print("BOCK: Reevaluate best point")
+        func_x_= self._oracle._y_model._func(condition=self._x, num_repetitions=self._num_repetitions)
         self._y_noise = torch.cat([self._y_noise, func_x_.std().view(1, 1) / np.sqrt(len(func_x_))])
         self._x = self._X_dataset[self._y_dataset.argmin()].clone().detach()
+        print("BOCK: best y value {}, best x value {}".format(self._y_dataset.min(),
+                                                              self._X_dataset[self._y_dataset.argmin()].clone().detach()))
         super()._post_step(init_time)
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all()):
-            return COMP_ERROR
+            return COMP_ERRORca
 
 
 """

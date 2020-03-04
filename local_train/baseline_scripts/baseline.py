@@ -19,7 +19,7 @@ from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, 
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *
-
+import traceback
 
 def get_freer_gpu():
     """
@@ -164,18 +164,35 @@ def main(
 
     for iter in range(max_iters):
         current_psi, status, history = optimizer.optimize()
+
+        if type(y_model).__name__ in ['SimpleSHiPModel', 'SHiPModel', 'FullSHiPModel']:
+            current_psi = torch.clamp(current_psi, 1e-5, 1e5)
+
+        try:
+            # logging optimization, i.e. statistics of psi
+            #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
+            # logger.log_ship_samples(model, y_sampler, current_psi, train_y=x, n_samples=100000)
+            logger.log_optimizer(optimizer)
+            logger.log_performance(y_sampler=y_model,
+                                   current_psi=current_psi,
+                                   n_samples=0,
+                                   num_repetitions=optimizer_config["num_repetitions"])
+        except Exception as e:
+            print(e)
+            print(traceback.format_exc())
+            # raise
         print(current_psi)
         # if iter % 10 == 0:
-        if not (isinstance(y_model, SHiPModel) or isinstance(y_model, SimpleSHiPModel)):
-            pass
-
-        logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
-        logger.log_performance(y_sampler=y_model,
-                               current_psi=current_psi,
-                               n_samples=5000)
+        # if not (isinstance(y_model, SHiPModel) or isinstance(y_model, SimpleSHiPModel)):
+        #     pass
+        #
+        # logger.log_grads(ndiff, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
+        # logger.log_performance(y_sampler=y_model,
+        #                        current_psi=current_psi,
+        #                        n_samples=5000)
         torch.cuda.empty_cache()
-
-    logger.log_optimizer(optimizer)
+    logger.func_saver.join()
+    # logger.log_optimizer(optimizer)
 
 
 if __name__ == "__main__":
