@@ -1206,6 +1206,36 @@ class FullSHiPModel(SHiPModel):
         loss = self.loss(y, conditions)
         return loss
 
+    def _func_multiple(self, condition, num_repetitions):
+        uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+        print("ORIG ", len(uuids))
+        y = []
+        xs = []
+        psi = []
+        for uuid in uuids:
+            try:
+                print(data[uuid].keys())
+            except KeyError as e:
+                print(e)
+                continue
+            num_entries = len(data[uuid][self.kinematics_key])
+            if num_entries == 0:
+                continue
+            xs.append(data[uuid][self.kinematics_key])
+            y.append(data[uuid][self.hits_key])
+            psi.append(data[uuid][self.condition_key])
+        if len(xs) == len(y) == 0:
+            return None, None
+        # TODO: fix in case of 0 entries
+        # if there is absolutelt no entires have passed
+        losses = []
+        for index in range(len(y)):
+            _xs = torch.tensor(xs[index]).float().to(self._device)
+            _y = torch.tensor(y[index]).float().to(self._device)
+            _psi = torch.tensor(psi[index].repeat(len(_xs), 1)).float().to(self._device)
+            losses.append(self.loss(_y, torch.cat([_psi, _xs], dim=1)))
+        return losses
+
     def calculate_weight(self, magnet_params):
         magnet_sections = 6
         params_per_section = 6
@@ -1225,6 +1255,15 @@ class FullSHiPModel(SHiPModel):
         # I add mass of absorber (fixed) to make relu activation in loss term acting correctly
         mass_of_absorber = 257401. #  kg
         return total_mass + mass_of_absorber
+
+
+    # def generate_data_at_point(self, n_samples_per_dim, current_psi):
+    #     data = self._generate(current_psi, n_samples_per_dim)
+    #     xs = torch.tensor(data[self.kinematics_key]).float().to(self._device)
+    #     y = torch.tensor(data[self.hits_key]).float().to(self._device)
+    #     cond = data[self.condition_key]
+    #     psi = torch.tensor(cond.repeat(n_samples_per_dim, 1)).float().to(self._device)
+    #     return y[:, :2], torch.cat([psi, xs], dim=1)
 
 
 class SimpleSHiPModel(YModel):
