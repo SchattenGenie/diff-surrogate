@@ -16,5 +16,5 @@ model_config = {
     'grad_penalty': True,
     'attention_net_size': None,
     'gp_reg_coeff': 10,
-    'predict_risk': False
+    #'predict_risk': False
 }

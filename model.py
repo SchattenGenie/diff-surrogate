@@ -1105,7 +1105,9 @@ class FullSHiPModel(SHiPModel):
         """
         MUON = 13
         left_margin = 2.9  # in m
-        right_margin = 3  # in m
+        right_margin = 3.2  # in m
+        margin_sum = left_margin + right_margin
+
         y_margin = 5  # in m
         y = y / 100. # convert cm to m
         print("inside loss kinematics example value: {}".format(conditions[0, self._psi_dim:]))
@@ -1115,10 +1117,10 @@ class FullSHiPModel(SHiPModel):
 
         print((acceptance_mask_plus & acceptance_mask_minus).sum())
         # 1e-5 and .abs() to prevent bad gradients of sqrt(-0), which leads to NaN in .grad for psi
-        sum_term_1 = (acceptance_mask_plus.float()) * torch.sqrt(1e-5 + ((5.9 - (y[:, 0] + 3)) / 5.9).abs())
+        sum_term_1 = (acceptance_mask_plus.float()) * torch.sqrt(1e-5 + ((margin_sum - (y[:, 0] + right_margin)) / margin_sum).abs())
         # get rid of NaN
         sum_term_1[sum_term_1 != sum_term_1] = 0.
-        sum_term_2 = (acceptance_mask_minus.float()) * torch.sqrt(1e-5 + ((5.9 + (y[:, 0] - 3)) / 5.9).abs())
+        sum_term_2 = (acceptance_mask_minus.float()) * torch.sqrt(1e-5 + ((margin_sum + (y[:, 0] - right_margin)) / margin_sum).abs())
         sum_term_2[sum_term_2 != sum_term_2] = 0.
 
         sum_term = sum_term_1 + sum_term_2
