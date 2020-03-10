@@ -604,16 +604,23 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Mean grad var', torch.norm(torch.var(model_grad_value, dim=0, keepdim=True),
                                                                 dim=1).item(), step=self._epoch)
 
-        model_grad_value = model_grad_value.mean(dim=0)
-        model_grad_value /= model_grad_value.norm()
+        # model_grad_value = model_grad_value.mean(dim=0)
+        # model_grad_value /= model_grad_value.norm()
 
+        true_grad_values = []
         if log_grad_diff:
             true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
-            true_grad_value = true_grad_value.mean(dim=0)
-            true_grad_value /= true_grad_value.norm()
-            self._experiment.log_metric('Mean grad diff',
-                                        torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+            # true_grad_value = true_grad_value.mean(dim=0)
+            # true_grad_value /= true_grad_value.norm()
+            # self._experiment.log_metric('Mean grad diff',
+            #                             torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+        #print("GRADS!", true_grad_value.shape, model_grad_value.shape)
 
+        cosine_distance = torch.nn.functional.cosine_similarity(true_grad_value, model_grad_value)
+        #print(cosine_distance.shape)
+
+        self._experiment.log_metric('Mean grad diff',
+                                    cosine_distance.mean().item(), step=self._epoch)
 
 
         #self._experiment.log_metric('True grad', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)

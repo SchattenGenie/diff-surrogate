@@ -59,7 +59,7 @@ class VoidModel(BaseConditionalGenerationOracle):
         self._control_variate_parameters = list(self._control_variate.parameters())
         self._sigma = torch.zeros(psi_dim, requires_grad=True, device=self._device)
         self._num_repetitions = num_repetitions
-        self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters)
+        self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters, lr=self._lr)
 
     def grad(self, condition: torch.Tensor, **kwargs) -> torch.Tensor:
         condition = condition.detach().clone().to(self.device)

@@ -75,14 +75,14 @@ class VoidOptimizer(BaseOptimizer):
         f_k = self._oracle.func(self._oracle._psi, num_repetitions=self._num_repetitions)
         d_k = self._oracle.grad(self._oracle._psi, num_repetitions=self._num_repetitions)
         self._x = x_k
-        if self._num_iter % 10 == 0:
+        if self._num_iter % 5 == 0:
             print(self._num_iter, f_k)
             self._logger.log_performance(y_sampler=self._oracle._y_model,
                                          current_psi=x_k,
                                          n_samples=self._n_samples, upload_pickle=False)
             self._logger.log_grads(self._oracle,
                                   y_sampler=self._oracle._y_model,
-                                  current_psi=x_k, num_repetitions=5000)
+                                  current_psi=x_k, num_repetitions=30000, n_samples=100, log_grad_diff=True)
         super()._post_step(init_time)
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
@@ -152,7 +152,8 @@ def main(
 
     try:
         logger.log_optimizer(optimizer)
-        logger.log_grads(model, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
+        logger.log_grads(model, y_sampler=y_model, current_psi=x_k, num_repetitions=30000,
+                         n_samples=100, log_grad_diff=True)
         logger.log_performance(y_sampler=y_model,
                                current_psi=current_psi,
                                n_samples=5000)
