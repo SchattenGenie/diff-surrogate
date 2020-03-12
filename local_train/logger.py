@@ -604,6 +604,8 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Mean grad var', torch.norm(torch.var(model_grad_value, dim=0, keepdim=True),
                                                                 dim=1).item(), step=self._epoch)
 
+        model_grad_value_saved = model_grad_value
+        model_grad_value_saved = model_grad_value_saved / model_grad_value_saved.norm(keepdim=True, dim=1)
         model_grad_value = model_grad_value.mean(dim=0)
         model_grad_value /= model_grad_value.norm()
 
@@ -615,6 +617,9 @@ class CometLogger(SimpleLogger):
             # print("3", model_grad_value.shape, true_grad_value.shape)
             self._experiment.log_metric('Mean grad diff',
                                         torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+
+            #  self._experiment.log_metric('Mean grad diff cos',
+            #                             (model_grad_value_saved * true_grad_value).sum(dim=1).mean().item(), step=self._epoch)
 
 
 

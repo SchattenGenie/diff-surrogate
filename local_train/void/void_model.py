@@ -13,8 +13,8 @@ from torch.autograd import grad
 class ControlVariate(nn.Module):
     def __init__(self, psi_dim):
         super(ControlVariate, self).__init__()
-        self.lin1 = nn.Linear(psi_dim, 5)
-        self.lin2 = nn.Linear(5, 1)
+        self.lin1 = nn.Linear(psi_dim, 10)
+        self.lin2 = nn.Linear(10, 1)
 
     def forward(self, x):
         x = F.tanh(self.lin1(x))
@@ -57,9 +57,26 @@ class VoidModel(BaseConditionalGenerationOracle):
         self._policy = NormalPolicy()
         self._control_variate = ControlVariate(psi_dim).to(self._device)
         self._control_variate_parameters = list(self._control_variate.parameters())
-        self._sigma = torch.zeros(psi_dim, requires_grad=True, device=self._device)
+        self._sigma = torch.full((psi_dim, ), fill_value=-1., requires_grad=True, device=self._device)
         self._num_repetitions = num_repetitions
         self._optimizer = optim.Adam(params=[self._psi, self._sigma] + self._control_variate_parameters)
+
+    def sample_conditions(self, n: int) -> torch.Tensor:
+        conditions = self._policy(self._psi, self._sigma, N=n).to(self._device)
+        return conditions
+
+    def policy_grad_true(self, condition, **kwargs):
+        condition = condition.detach().clone().to(self.device)
+        condition.requires_grad_(True)
+        x_grad_total = torch.zeros_like(condition)
+        for k in range(self._K):
+            action = self._policy(condition, self._sigma, N=1)
+            r = self._y_model.func(action, num_repetitions=self._num_repetitions).view(1)
+            x_grad_1 = grad([r.sum()], [condition], retain_graph=True)[0]
+            x_grad = -x_grad_1
+            x_grad_total += x_grad / self._K
+        return x_grad_total.clone().detach()
+
 
     def grad(self, condition: torch.Tensor, **kwargs) -> torch.Tensor:
         condition = condition.detach().clone().to(self.device)
@@ -67,13 +84,15 @@ class VoidModel(BaseConditionalGenerationOracle):
         x_grad_total = torch.zeros_like(condition)
         for k in range(self._K):
             action = self._policy(condition, self._sigma, N=1)
+            action = action.detach().clone().to(self.device)
+            action.requires_grad_(True)
             r = self._y_model.func(action, num_repetitions=self._num_repetitions).detach().view(1)
             c = self._control_variate(action).view(1)
-            log_prob = self._policy.log_prob(mu=condition, sigma=self._sigma, x=action.detach())
+            log_prob = self._policy.log_prob(mu=condition, sigma=self._sigma, x=action)
 
-            x_grad_1, sigma_grad_1 = grad([log_prob.sum()], [condition, self._sigma], retain_graph=True, create_graph=True)
-            x_grad_2, sigma_grad_2 = grad([c.mean()], [condition, self._sigma], retain_graph=True, create_graph=True)
-
+            x_grad_1 = grad([log_prob.sum()], [action], retain_graph=True)[0][0]
+            x_grad_2 = grad([c.mean()], [action], retain_graph=True)[0][0]
+            # print("x_grad_1", x_grad_1, "x_grad_2", x_grad_2)
             x_grad = x_grad_1 * (r - c) + x_grad_2
             x_grad_total += x_grad / self._K
 

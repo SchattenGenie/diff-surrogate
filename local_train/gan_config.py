@@ -6,7 +6,7 @@ model_config = {
     'noise_dim': 150,
     'lr': 1e-4 * 8,
     'batch_size': 512,
-    'epochs': 30,
+    'epochs': 15,
     'iters_discriminator': 1,
     'iters_generator': 1,
     'instance_noise_std': 0.01,
@@ -16,5 +16,5 @@ model_config = {
     'grad_penalty': True,
     'attention_net_size': None,
     'gp_reg_coeff': 10,
-    'predict_risk': False
+    # 'predict_risk': False
 }
