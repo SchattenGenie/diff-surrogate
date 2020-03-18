@@ -6,7 +6,6 @@ import click
 import torch
 import numpy as np
 sys.path.append('../')
-sys.path.append('./RegressionNN')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
                   LearningToSimGaussianModel, SHiPModel, BernoulliModel, FullSHiPModel,\
