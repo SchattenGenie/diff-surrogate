@@ -77,8 +77,8 @@ class GANModel(BaseConditionalGenerationOracle):
         return data + torch.randn_like(data) * data.std(dim=0) * std
 
     def loss(self, y, condition):
-        # y = (y - self._y_mean) / self._y_std
-        # condition = (condition - self._cond_mean) / self._cond_std
+        y = (y - self._y_mean) / self._y_std
+        condition = (condition - self._cond_mean) / self._cond_std
         return self._discriminator(y, condition)
 
     def fit(self, y, condition, weights=None):
@@ -91,10 +91,9 @@ class GANModel(BaseConditionalGenerationOracle):
         g_optimizer = torch.optim.Adam(self._generator.parameters(), lr=self._lr, betas=(0.5, 0.999))
         d_optimizer = torch.optim.Adam(self._discriminator.parameters(), lr=self._lr, betas=(0.5, 0.999))
 
-        y = (y - self._y_mean) / self._y_std
-        condition = (condition - self._cond_mean) / self._cond_std
-        condition[torch.isnan(condition)] = 0
-        #dataset = torch.utils.data.TensorDataset(y_normed, cond_normed)
+        # y = (y - self._y_mean) / self._y_std
+        # condition = (condition - self._cond_mean) / self._cond_std
+        # condition[torch.isnan(condition)] = 0
         dataset = torch.utils.data.TensorDataset(y, condition)
         dataloader = torch.utils.data.DataLoader(dataset,
                                                  batch_size=self._batch_size,
@@ -188,14 +187,16 @@ class GANModel(BaseConditionalGenerationOracle):
         return self
 
     def generate(self, condition, normalise=True):
-        if normalise:
-            condition = (condition - self._cond_mean) / self._cond_std
-            condition[torch.isnan(condition)] = 0
+        condition = (condition - self._cond_mean) / self._cond_std
+        # if normalise:
+        #     condition = (condition - self._cond_mean) / self._cond_std
+        #     condition[torch.isnan(condition)] = 0
         n = len(condition)
         z = torch.randn(n, self._noise_dim).to(self.device)
         y = self._generator(z, condition)
-        if normalise:
-            y = y * self._y_std + self._y_mean
+        # if normalise:
+        #     y = y * self._y_std + self._y_mean
+        y = y * self._y_std + self._y_mean
         return y
 
     def log_density(self, y, condition):

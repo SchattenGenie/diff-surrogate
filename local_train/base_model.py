@@ -101,6 +101,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
             if len(condition.size()) == 1:
                 conditions = condition.repeat(num_repetitions, 1)
             else:
+                raise NotImplementedError
                 n = len(condition)
                 conditions = condition.repeat(1, num_repetitions).view(num_repetitions * n, -1)
             conditions = torch.cat([

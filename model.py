@@ -222,6 +222,7 @@ class SHiPModel(YModel):
         self.kinematics_key = "muons_momentum"
         self.condition_key = "condition"
         self.saved_muon_input_kinematics = None
+        self._iteration_time_limit = 70. # limit of waiting for one iteration in minutes
 
     def sample_x(self, num_repetitions):
         p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
@@ -292,7 +293,8 @@ class SHiPModel(YModel):
         # iterate over uuids
         # and collect computation results from SHiP service
         uuids_processed = []
-        while len(uuids):
+        start_time = time.time()
+        while len(uuids) and (time.time() - start_time) / 60. < self._iteration_time_limit:
             time.sleep(5.)
             for uuid in uuids:
                 answer = self._request_data(uuid, wait=False)
@@ -444,7 +446,7 @@ class FullSHiPModel(SHiPModel):
     def _request_uuid(self, condition, num_repetitions):
         d = {"shape": list(map(lambda x: round(x, self.params_precision), condition.detach().cpu().numpy().tolist())),
              "n_events": num_repetitions,
-             "n_jobs": 16}
+             "n_jobs": 13}
         print("request_params", d)
         r = requests.post(
             "{}/simulate".format(self._address),
@@ -528,35 +530,35 @@ class FullSHiPModel(SHiPModel):
         loss = self.loss(y, conditions)
         return loss
 
-    def _func_multiple(self, condition, num_repetitions):
-        uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
-        print("ORIG ", len(uuids))
-        y = []
-        xs = []
-        psi = []
-        for uuid in uuids:
-            try:
-                print(data[uuid].keys())
-            except KeyError as e:
-                print(e)
-                continue
-            num_entries = len(data[uuid][self.kinematics_key])
-            if num_entries == 0:
-                continue
-            xs.append(data[uuid][self.kinematics_key])
-            y.append(data[uuid][self.hits_key])
-            psi.append(data[uuid][self.condition_key])
-        if len(xs) == len(y) == 0:
-            return None, None
-        # TODO: fix in case of 0 entries
-        # if there is absolutelt no entires have passed
-        losses = []
-        for index in range(len(y)):
-            _xs = torch.tensor(xs[index]).float().to(self._device)
-            _y = torch.tensor(y[index]).float().to(self._device)
-            _psi = torch.tensor(psi[index].repeat(len(_xs), 1)).float().to(self._device)
-            losses.append(self.loss(_y, torch.cat([_psi, _xs], dim=1)))
-        return losses
+    # def _func_multiple(self, condition, num_repetitions):
+    #     uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+    #     print("ORIG ", len(uuids))
+    #     y = []
+    #     xs = []
+    #     psi = []
+    #     for uuid in uuids:
+    #         try:
+    #             print(data[uuid].keys())
+    #         except KeyError as e:
+    #             print(e)
+    #             continue
+    #         num_entries = len(data[uuid][self.kinematics_key])
+    #         if num_entries == 0:
+    #             continue
+    #         xs.append(data[uuid][self.kinematics_key])
+    #         y.append(data[uuid][self.hits_key])
+    #         psi.append(data[uuid][self.condition_key])
+    #     if len(xs) == len(y) == 0:
+    #         return None, None
+    #     # TODO: fix in case of 0 entries
+    #     # if there is absolutelt no entires have passed
+    #     losses = []
+    #     for index in range(len(y)):
+    #         _xs = torch.tensor(xs[index]).float().to(self._device)
+    #         _y = torch.tensor(y[index]).float().to(self._device)
+    #         _psi = torch.tensor(psi[index].repeat(len(_xs), 1)).float().to(self._device)
+    #         losses.append(self.loss(_y, torch.cat([_psi, _xs], dim=1)))
+    #     return losses
 
     def calculate_weight(self, magnet_params):
         magnet_sections = 6

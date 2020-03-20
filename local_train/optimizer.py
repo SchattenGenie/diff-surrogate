@@ -119,9 +119,10 @@ class BaseOptimizer(ABC):
     def update(self, oracle: BaseConditionalGenerationOracle, x: torch.Tensor, step=None):
         self._oracle = oracle
         self._x.data = x.data
-        if step:
-            self._x_step = step
-        self._x_init = copy.deepcopy(x.detach().clone())
+        # if step:
+        #     self._x_step = step
+        # self._x_init = copy.deepcopy(x.detach().clone())
+        self._x_init = copy.deepcopy(x)
         self._history = defaultdict(list)
 
     @abstractmethod
@@ -138,16 +139,16 @@ class BaseOptimizer(ABC):
         :param init_time:
         :return:
         """
-        if self._correct:
-            if not SPHERE:
-                self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
-            else:
-                # sphere cut
-                x_corrected = self._x.data - self._x_init.data
-                if x_corrected.norm() > self._x_step:
-                    x_corrected = self._x_step * x_corrected / (x_corrected.norm())
-                    x_corrected.data = x_corrected.data + self._x_init.data
-                    self._x.data = x_corrected.data
+        # if self._correct:
+        if not SPHERE:
+            self._x.data = torch.max(torch.min(self._x, self._x_init + self._x_step), self._x_init - self._x_step)
+        else:
+            # sphere cut
+            x_corrected = self._x.data - self._x_init.data
+            if x_corrected.norm() > self._x_step:
+                x_corrected = self._x_step * x_corrected / (x_corrected.norm())
+                x_corrected.data = x_corrected.data + self._x_init.data
+                self._x.data = x_corrected.data
 
         if CLIP_PARAMS:
             self._x.data = torch.clamp(self._x, 1e-5, 1e5)
@@ -508,14 +509,14 @@ class TorchOptimizer(BaseOptimizer):
         super().__init__(oracle, x, *args, **kwargs)
         self._x.requires_grad_(True)
         self._lr = lr
-        self._lr_algo = lr_algo
+        # self._lr_algo = lr_algo
         self._alpha_k = self._lr
         self._torch_model = torch_model
         self._optim_params = optim_params
         self._base_optimizer = getattr(optim, self._torch_model)(
             params=[self._x], lr=lr, **self._optim_params
         )
-        self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
+        #self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
         print(self._base_optimizer)
 
     def _step(self):
@@ -523,18 +524,18 @@ class TorchOptimizer(BaseOptimizer):
         self._base_optimizer.zero_grad()
         d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
 
-        if self._lr_algo == "None":
-            self._base_optimizer.param_groups[0]['lr'] = self._x_step
-        elif self._lr_algo == "Grad":
-            self._base_optimizer.param_groups[0]['lr'] = self._x_step / d_k.norm().item()
-        elif self._lr_algo == "Dim":
-            self._base_optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(d_k)))
-        else:
-            pass
+        # if self._lr_algo == "None":
+        #     self._base_optimizer.param_groups[0]['lr'] = self._x_step
+        # elif self._lr_algo == "Grad":
+        #     self._base_optimizer.param_groups[0]['lr'] = self._x_step / d_k.norm().item()
+        # elif self._lr_algo == "Dim":
+        #     self._base_optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(d_k)))
+        # else:
+        #     pass
 
         print("Grad: ", d_k)
         self._x.grad = d_k.detach().clone()
-        self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
+        # self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
         self._base_optimizer.step()
         print("PSI", self._x)
         super()._post_step(init_time)
@@ -901,7 +902,7 @@ class BOCKOptimizer(BaseOptimizer):
         super()._post_step(init_time)
         if not (torch.isfinite(x_k).all() and
                 torch.isfinite(f_k).all()):
-            return COMP_ERRORca
+            return COMP_ERROR
 
 
 """

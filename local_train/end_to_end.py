@@ -91,8 +91,8 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
-    #gan_logger = GANLogger(experiment)
-    gan_logger = RegressionLogger(experiment)
+    gan_logger = GANLogger(experiment)
+    # gan_logger = RegressionLogger(experiment)
     # gan_logger = None
 
     y_sampler = optimized_function_cls(device=device, psi_init=current_psi)
@@ -129,11 +129,11 @@ def end_to_end_training(epochs: int,
         exp_replay.add(y=x, condition=condition)
         x = torch.cat([x, x_exp_replay], dim=0)
         condition = torch.cat([condition, condition_exp_replay], dim=0)
-        used_samples = n_samples
-        if len(x) > CAP_SIZE:
-            subsample_mask = np.random.choice(len(x), size=CAP_SIZE, replace=False)
-            x = x[subsample_mask]
-            condition = condition[subsample_mask]
+        # used_samples = n_samples
+        # if len(x) > CAP_SIZE:
+        #     subsample_mask = np.random.choice(len(x), size=CAP_SIZE, replace=False)
+        #     x = x[subsample_mask]
+        #     condition = condition[subsample_mask]
 
         # breaking things
         if model_config.get("predict_risk", False):
@@ -203,7 +203,7 @@ def end_to_end_training(epochs: int,
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)
-            experiment.log_metric("used_samples_per_step", used_samples)
+            # experiment.log_metric("used_samples_per_step", used_samples)
             experiment.log_metric("sample_size", len(x))
             # too long for ship...
             """
