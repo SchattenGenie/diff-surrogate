@@ -102,7 +102,7 @@ def end_to_end_training(epochs: int,
         print(current_psi, status)
         try:
             # logging optimization, i.e. statistics of psi
-            # logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim)
+            logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=True)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,
                                    n_samples=n_samples)

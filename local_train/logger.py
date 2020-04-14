@@ -606,6 +606,10 @@ class CometLogger(SimpleLogger):
 
         # model_grad_value = model_grad_value.mean(dim=0)
         # model_grad_value /= model_grad_value.norm()
+        # model_grad_value_saved = model_grad_value
+        # model_grad_value_saved = model_grad_value_saved / model_grad_value_saved.norm(keepdim=True, dim=1)
+        # model_grad_value = model_grad_value.mean(dim=0)
+        # model_grad_value /= model_grad_value.norm()
 
         true_grad_values = []
         if log_grad_diff:
@@ -622,9 +626,7 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Mean grad diff',
                                     cosine_distance.mean().item(), step=self._epoch)
 
-
         #self._experiment.log_metric('True grad', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)
-
 
 
     def log_grads_2d(self, psis, metrics, current_psi, step_data_gen):

@@ -14,7 +14,7 @@ from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, \
-    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate
+    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate, RosenbrockModelNoisless
 from optimizer import BaseOptimizer
 from typing import Callable
 import time
@@ -23,6 +23,7 @@ from torch.autograd import grad
 from pyro import distributions as dist
 from optimizer import SUCCESS, ITER_ESCEEDED, COMP_ERROR
 from void_model import VoidModel
+from tqdm import tqdm
 
 
 def get_freer_gpu():
@@ -75,7 +76,8 @@ class VoidOptimizer(BaseOptimizer):
         f_k = self._oracle.func(self._oracle._psi, num_repetitions=self._num_repetitions)
         d_k = self._oracle.grad(self._oracle._psi, num_repetitions=self._num_repetitions)
         self._x = x_k
-        if self._num_iter % 5 == 0:
+        if self._num_iter % 10 == 0:
+            print("sigma", (1. + self._oracle._sigma.exp()).log())
             print(self._num_iter, f_k)
             self._logger.log_performance(y_sampler=self._oracle._y_model,
                                          current_psi=x_k,
@@ -83,6 +85,47 @@ class VoidOptimizer(BaseOptimizer):
             self._logger.log_grads(self._oracle,
                                   y_sampler=self._oracle._y_model,
                                   current_psi=x_k, num_repetitions=30000, n_samples=100, log_grad_diff=True)
+
+            # estimate average grads from policy
+            grad_void = []
+            grad_void_true = []
+            for _ in tqdm(range(500)):
+                grad_void.append(self._oracle.grad(x_k, num_repetitions=5000))
+            for _ in tqdm(range(500)):
+                grad_void_true.append(self._oracle.policy_grad_true(x_k, num_repetitions=5000))
+            grad_void = torch.stack(grad_void)
+            grad_void_true = torch.stack(grad_void_true)
+            grad_true = self._oracle._y_model.grad(x_k, num_repetitions=5000)
+            grad_diffs = (grad_void.mean(dim=0) / grad_void.mean(dim=0).norm()) * ((grad_true / grad_void_true.norm()))
+            print("Grad diffs void - simulator", )
+            self._logger._experiment.log_metric('Grad diff void psi cosine',
+                                        grad_diffs.sum().item(),
+                                        step=self._logger._epoch)
+            grad_diffs = (grad_void.mean(dim=0) / grad_void.mean(dim=0).norm()) * (grad_void_true.mean(dim=0) / grad_void_true.mean(dim=0).norm())
+            self._logger._experiment.log_metric('Grad diff void true cosine',
+                                        grad_diffs.sum().item(),
+                                        step=self._logger._epoch)
+            print("Grad diffs void - policy", grad_diffs.sum())
+
+            """
+                model_grad_value_saved = model_grad_value
+                model_grad_value_saved = model_grad_value_saved / model_grad_value_saved.norm(keepdim=True, dim=1)
+                model_grad_value = model_grad_value.mean(dim=0)
+                model_grad_value /= model_grad_value.norm()
+
+                if log_grad_diff:
+                    true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
+                    # print("2", true_grad_value.shape)
+                    true_grad_value = true_grad_value.mean(dim=0)
+                    true_grad_value /= true_grad_value.norm()
+                    # print("3", model_grad_value.shape, true_grad_value.shape)
+                    self._experiment.log_metric('Mean grad diff',
+                                                torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+
+                    self._experiment.log_metric('Mean grad diff cos',
+                                                (model_grad_value_saved * true_grad_value).sum(dim=1).mean().item(),
+                                                step=self._epoch)
+                """
         super()._post_step(init_time)
         grad_norm = torch.norm(d_k).item()
         if grad_norm < self._tolerance:
