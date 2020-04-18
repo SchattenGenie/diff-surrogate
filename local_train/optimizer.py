@@ -119,10 +119,10 @@ class BaseOptimizer(ABC):
     def update(self, oracle: BaseConditionalGenerationOracle, x: torch.Tensor, step=None):
         self._oracle = oracle
         self._x.data = x.data
-        # if step:
-        #     self._x_step = step
-        # self._x_init = copy.deepcopy(x.detach().clone())
-        self._x_init = copy.deepcopy(x)
+        if step:
+            self._x_step = step
+        self._x_init = copy.deepcopy(x.detach().clone())
+        # self._x_init = copy.deepcopy(x)
         self._history = defaultdict(list)
 
     @abstractmethod

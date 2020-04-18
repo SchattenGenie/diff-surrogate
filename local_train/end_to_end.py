@@ -21,7 +21,7 @@ if REWEIGHT:
     from hep_ml import reweight
 from base_model import average_block_wise
 
-CAP_SIZE = 850000
+CAP_SIZE = 1000000
 
 def get_freer_gpu():
     """
@@ -129,11 +129,11 @@ def end_to_end_training(epochs: int,
         exp_replay.add(y=x, condition=condition)
         x = torch.cat([x, x_exp_replay], dim=0)
         condition = torch.cat([condition, condition_exp_replay], dim=0)
-        # used_samples = n_samples
-        # if len(x) > CAP_SIZE:
-        #     subsample_mask = np.random.choice(len(x), size=CAP_SIZE, replace=False)
-        #     x = x[subsample_mask]
-        #     condition = condition[subsample_mask]
+        used_samples = n_samples
+        if len(x) > CAP_SIZE:
+            subsample_mask = np.random.choice(len(x), size=CAP_SIZE, replace=False)
+            x = x[subsample_mask]
+            condition = condition[subsample_mask]
 
         # breaking things
         if model_config.get("predict_risk", False):
