@@ -420,7 +420,7 @@ class FullSHiPModel(SHiPModel):
     def __init__(self,
                  device,
                  psi_init: torch.Tensor,
-                 address: str = 'http://127.0.0.1:5433',
+                 address: str = 'http://127.0.0.1:5444',
                  x_dim=7,
                  y_dim=2):
         super().__init__(device=device, psi_init=psi_init,
