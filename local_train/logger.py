@@ -16,6 +16,7 @@ from pyDOE import lhs
 import time
 import pickle
 from threading import Lock, Thread
+from functools import wraps
 
 my_cmap = plt.cm.jet
 my_cmap.set_under('white')
@@ -131,9 +132,13 @@ class FuncSaver(object):
     def submit_job(self, current_psi, func, epoch, num_repetitions=None):
         if num_repetitions is None:
             num_repetitions = 485879
-        thread = Thread(target=lambda index, psi, num_repetitions: self.insert(
-                            *(index, func(psi, num_repetitions=num_repetitions).detach().cpu().numpy())),
-                            args=(epoch, current_psi, num_repetitions)
+        func_wrap = self.print_validation(func)
+        input_file = "reweighted_input_test.root"
+        thread = Thread(target=lambda index, psi, num_repetitions, input_file: self.insert(
+                            *(index, func_wrap(psi,
+                                               num_repetitions=num_repetitions,
+                                               input_file=input_file).detach().cpu().numpy())),
+                            args=(epoch, current_psi, num_repetitions, input_file)
                         )
         print("Start evaluation thread")
         thread.start()
@@ -151,6 +156,13 @@ class FuncSaver(object):
         while self.threads_queue:
             self.threads_queue.pop().join()
         self.update()
+
+    def print_validation(self, func):
+        @wraps(func)
+        def print_log(*args, **kwargs):
+            print("Validation run begins: ")
+            return func(*args, **kwargs)
+        return print_log
 
 
 class BaseLogger(ABC):

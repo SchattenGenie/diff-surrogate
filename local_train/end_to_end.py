@@ -8,8 +8,8 @@ import numpy as np
 sys.path.append('../')
 from typing import List, Union
 from model import FullSHiPModel 
-from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
-from ffjord_model import FFJORDModel
+# from ffjord_ensemble_model import FFJORDModel as FFJORDEnsembleModel
+# from ffjord_model import FFJORDModel
 from gan_model import GANModel
 from optimizer import *
 from logger import SimpleLogger, CometLogger, GANLogger, RegressionLogger
@@ -198,7 +198,7 @@ def end_to_end_training(epochs: int,
         try:
             # logging optimization, i.e. statistics of psi
             #logger.log_grads(model, y_sampler, current_psi, n_samples_per_dim, log_grad_diff=False)
-            logger.log_ship_samples(model, y_sampler, current_psi, train_y=x, n_samples=100000)
+            logger.log_ship_samples(model, y_sampler, current_psi, train_y=x, n_samples=100000, batch_size=25000)
             logger.log_optimizer(optimizer)
             logger.log_performance(y_sampler=y_sampler,
                                    current_psi=current_psi,

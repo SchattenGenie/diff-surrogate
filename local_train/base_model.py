@@ -126,7 +126,7 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
             return loss
 
     def grad(self, condition: torch.Tensor, num_repetitions: int = None,
-             calculate_by_batch=True, batch_size=512) -> torch.Tensor:
+             calculate_by_batch=True, batch_size=10000) -> torch.Tensor:
         """
         Computes the gradient of function with specified condition.
         If num_repetitions is not None then condition assumed
@@ -144,7 +144,8 @@ class BaseConditionalGenerationOracle(BaseConditionalGeneratorModel, ABC):
                 grads = torch.zeros_like(condition)
                 for index in range(num_repetitions // batch_size):
                     grads += grad([self.func(condition, num_repetitions=batch_size).sum()], [condition])[0]
-                grads += grad([self.func(condition, num_repetitions=num_repetitions % batch_size).sum()],
+                if num_repetitions % batch_size != 0:
+                    grads += grad([self.func(condition, num_repetitions=num_repetitions % batch_size).sum()],
                                   [condition])[0]
                 return grads
             else:

@@ -19,6 +19,8 @@ import traceback
 import json
 import time
 import os
+import uproot
+import sys
 
 
 from tqdm import trange
@@ -222,7 +224,12 @@ class SHiPModel(YModel):
         self.kinematics_key = "muons_momentum"
         self.condition_key = "condition"
         self.saved_muon_input_kinematics = None
-        self._iteration_time_limit = 70. # limit of waiting for one iteration in minutes
+        self._iteration_time_limit = 75. # limit of waiting for one iteration in minutes
+        self.path_to_enhanced = os.path.expanduser("~/muGAN/SHiP_GAN_module/data_files/" +
+                                                   "Seed_auxiliary_values_for_enhanced_generation.npy")
+        self.root_filename = "gan_sampled_input.root"
+        self.path_to_output_root = os.path.join("/mnt/shipfs/", self.root_filename)
+        # self._muGAN = muGAN()
 
     def sample_x(self, num_repetitions):
         p = np.random.uniform(low=1, high=10, size=num_repetitions)  # energy gen
@@ -273,19 +280,19 @@ class SHiPModel(YModel):
         print(r.content, d)
         return r.content.decode()
 
-    def _generate(self, condition, num_repetitions):
-        uuid = self._request_uuid(condition, num_repetitions=num_repetitions)
+    def _generate(self, condition, num_repetitions, input_file=None):
+        uuid = self._request_uuid(condition, num_repetitions=num_repetitions, input_file=input_file)
         time.sleep(2.)
         data = self._request_data(uuid, wait=True)
         return data
 
-    def _generate_multiple(self, condition, num_repetitions):
+    def _generate_multiple(self, condition, num_repetitions, input_file=None):
         # making request to calculate new points
         res = {}
         uuids = []
         uuids_to_condition = {}
         for cond in condition:
-            uuid = self._request_uuid(cond, num_repetitions=num_repetitions)
+            uuid = self._request_uuid(cond, num_repetitions=num_repetitions, input_file=input_file)
             uuids.append(uuid)
             uuids_to_condition[uuid] = cond
 
@@ -309,19 +316,19 @@ class SHiPModel(YModel):
                     uuids_processed.append(uuid)
                     # TODO: ignore?
                     # raise ValueError("Generation has failed with error {}".format(r.get("message", None)))
-
             uuids = list(set(uuids) - set(uuids_processed))
+        print("TIME LIMITED: ", len(uuids))
         print("GM", len(res.keys()))
         return uuids_original, res
 
-    def _func(self, condition, num_repetitions):
-        res = self._generate(condition, num_repetitions=num_repetitions)
+    def _func(self, condition, num_repetitions, input_file=None):
+        res = self._generate(condition, num_repetitions=num_repetitions, input_file=input_file)
         y = torch.tensor(np.array(res[self.hits_key])[:, :2])
         loss = self.loss(y, condition)
         return loss
 
-    def _func_multiple(self, condition, num_repetitions):
-        uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions)
+    def _func_multiple(self, condition, num_repetitions, input_file=None):
+        uuids, data = self._generate_multiple(condition, num_repetitions=num_repetitions, input_file=input_file)
         loss = []
         for uuid in uuids:
             d = data.get(uuid, None)
@@ -339,9 +346,9 @@ class SHiPModel(YModel):
 
     def func(self, condition, num_repetitions=100, **kwargs):
         if condition.ndim == 1:
-            res = self._func(condition, num_repetitions=num_repetitions)
+            res = self._func(condition, num_repetitions=num_repetitions, input_file=kwargs["input_file"])
         elif condition.ndim == 2:
-            res = self._func_multiple(condition, num_repetitions=num_repetitions)
+            res = self._func_multiple(condition, num_repetitions=num_repetitions, input_file=kwargs["input_file"])
         else:
             ValueError('No!')
         return torch.tensor(res).float().to(device=condition.device)
@@ -352,7 +359,11 @@ class SHiPModel(YModel):
         condition = step * (condition * 2 - 1) + current_psi
         condition = torch.tensor(condition).float().to(self.device)
         condition = torch.clamp(condition, 1e-5, 1e5)
-        uuids, data = self._generate_multiple(condition, num_repetitions=n_samples_per_dim)
+
+        self.sample_from_gan(n_samples_per_dim + 50_000, output_path=self.path_to_output_root)
+        uuids, data = self._generate_multiple(condition,
+                                              num_repetitions=n_samples_per_dim,
+                                              input_file=self.root_filename)
         print("ORIG ", len(uuids))
         y = []
         xs = []
@@ -375,7 +386,7 @@ class SHiPModel(YModel):
         # TODO: fix in case of 0 entries
         # if there is absolutelt no entires have passed
         xs = torch.tensor(np.concatenate(xs)).float().to(self.device)
-        self.saved_muon_input_kinematics = xs
+        # self.saved_muon_input_kinematics = xs
         y = torch.tensor(np.concatenate(y)).float().to(self.device)
         psi = torch.cat(psi)
 
@@ -415,6 +426,108 @@ class SHiPModel(YModel):
         condition.requires_grad_(True)
         return torch.zeros_like(condition)
 
+    def sample_from_gan(self, num_repetitions, output_path=None):
+        # seed_auxiliary_distributions = np.load(self.path_to_enhanced)
+        # seed_auxiliary_distributions = np.take(seed_auxiliary_distributions,
+        #                                        np.random.permutation(seed_auxiliary_distributions.shape[0]), axis=0,
+        #                                        out=seed_auxiliary_distributions)
+        # fraction_to_boost = 0.11
+        # cut = int(np.shape(seed_auxiliary_distributions)[0] * fraction_to_boost)
+        # dist = np.abs(np.random.normal(loc=0, scale=1, size=np.shape(seed_auxiliary_distributions[:cut, 2])))
+        # dist = np.abs(np.random.normal(loc=0, scale=1, size=np.shape(dist)))
+        # dist += 1
+        # dist = np.power(dist, 0.55)
+        # seed_auxiliary_distributions[:cut, 2] *= dist
+        # seed_auxiliary_distributions = np.take(seed_auxiliary_distributions,
+        #                                        np.random.permutation(seed_auxiliary_distributions.shape[0]), axis=0,
+        #                                        out=seed_auxiliary_distributions)
+
+        # boosted_muon_kinematic_vectors = self._muGAN.generate_enhanced(auxiliary_distributions=seed_auxiliary_distributions,
+        #                                                          size=num_repetitions)
+
+        # This is super dirty quickfix to generate muons on the fly with TF to get rid of mixing TF and PT being used
+        # at the same time. Award of the best coding practices.
+        os.system("python ../generate_gan_muons.py {} {}".format(self.path_to_enhanced, num_repetitions))
+        print("Waiting until muon generation is done")
+        while not os.path.exists("../done.txt"):
+            time.sleep(2)
+        print("remove flag file")
+        os.remove("../done.txt")
+        boosted_muon_kinematic_vectors = np.load("../gan_muons.npy")
+
+        if output_path:
+            self.save_to_ROOT(data=boosted_muon_kinematic_vectors, filename=output_path)
+        else:
+            xs = np.empty_like(boosted_muon_kinematic_vectors)
+            xs[:, :3] = boosted_muon_kinematic_vectors[:, -3:]
+            xs[:, 3:6] = boosted_muon_kinematic_vectors[:, 1:4]
+            xs[:, -1] = boosted_muon_kinematic_vectors[:, 0]
+            return torch.FloatTensor(xs).to(self.device)
+
+
+    def save_to_ROOT(self, data, filename='muons.root'):
+        '''  Use uproot to save a generated array to a ROOT file that is compalible with MuonBackGenerator.cxx from FairShip'''
+
+        shape = np.shape(data)[0]
+
+        data[:,
+        3] += 2084.5  # Shift target to 50m. In accordance with primGen.SetTarget(ship_geo.target.z0+50*u.m,0.) in run_simScript.py
+        # The start of target in the GAN training data is -7084.5.
+
+        dtype = '>f4'
+
+        Event_ID = uproot.newbranch(dtype)
+        ID = uproot.newbranch(dtype)
+        Parent_ID = uproot.newbranch(dtype)
+        Pythia_ID = uproot.newbranch(dtype)
+        ECut = uproot.newbranch(dtype)
+        W = uproot.newbranch(dtype)
+        X = uproot.newbranch(dtype)
+        Y = uproot.newbranch(dtype)
+        Z = uproot.newbranch(dtype)
+        PX = uproot.newbranch(dtype)
+        PY = uproot.newbranch(dtype)
+        PZ = uproot.newbranch(dtype)
+        Release_Time = uproot.newbranch(dtype)
+        Mother_ID = uproot.newbranch(dtype)
+        Process_ID = uproot.newbranch(dtype)
+
+        branchdict = {"event_id": Event_ID, "id": ID, "parentid": Parent_ID, "pythiaid": Pythia_ID, "ecut": ECut, "w": W,
+                      "x": X, "y": Y, "z": Z, "px": PX, "py": PY, "pz": PZ, "release_time": Release_Time,
+                      "mother_id": Mother_ID, "process_id": Process_ID}
+
+        tree = uproot.newtree(branchdict, title="pythia8-Geant4")
+
+        with uproot.recreate(filename) as f:
+            f["pythia8-Geant4"] = tree
+
+            f["pythia8-Geant4"].extend({"event_id": np.ones(shape).astype(np.float64), "id": data[:, 0].astype(np.float64),
+                                        "parentid": np.zeros(shape).astype(np.float64),
+                                        "pythiaid": data[:, 0].astype(np.float64),
+                                        "ecut": np.array(np.ones(shape) * 0.00001).astype(np.float64),
+                                        "w": np.ones(shape).astype(np.float64),
+                                        "x": np.array(data[:, 1] * 0.01).astype(np.float64),
+                                        "y": np.array(data[:, 2] * 0.01).astype(np.float64),
+                                        "z": np.array(data[:, 3] * 0.01).astype(np.float64),
+                                        "px": data[:, 4].astype(np.float64), "py": data[:, 5].astype(np.float64),
+                                        "pz": data[:, 6].astype(np.float64),
+                                        "release_time": np.zeros(shape).astype(np.float64),
+                                        "mother_id": np.array(np.ones(shape) * 99).astype(np.float64),
+                                        "process_id": np.array(np.ones(shape) * 99).astype(np.float64)})
+            # Not clear if all the datatype formatting is needed. Can be fiddly with ROOT datatypes. This works so I left it.
+
+            # Add buffer event at the end. This will not be read into simulation.
+            f["pythia8-Geant4"].extend({"event_id": [0], "id": [0], "parentid": [0],
+                                        "pythiaid": [0], "ecut": [0], "w": [0], "x": [0],
+                                        "y": [0], "z": [0], "px": [0], "py": [0],
+                                        "pz": [0], "release_time": [0], "mother_id": [0], "process_id": [0]})
+
+        print(' ')
+        print(' ')
+        print('Saved', shape, 'muons to', filename, '.')
+        print('run_simScript.py must be run with the option: -n', shape, '(or lower)')
+        print(' ')
+        print(' ')
 
 class FullSHiPModel(SHiPModel):
     def __init__(self,
@@ -434,19 +547,23 @@ class FullSHiPModel(SHiPModel):
         self.params_precision = 1
 
     def sample_x(self, num_repetitions):
-        # TODO: For now use boostrap, once
-        # things are working, sample from distributions somehow
-        sample_indices = np.random.choice(
-            range(len(self.saved_muon_input_kinematics)),
-            num_repetitions,
-            replace=True
-        )
-        return self.saved_muon_input_kinematics[sample_indices]
+        # # TODO: For now use boostrap, once
+        # # things are working, sample from distributions somehow
+        # sample_indices = np.random.choice(
+        #     range(len(self.saved_muon_input_kinematics)),
+        #     num_repetitions,
+        #     replace=True
+        # )
+        # return self.saved_muon_input_kinematics[sample_indices]
 
-    def _request_uuid(self, condition, num_repetitions):
+        # Using muGAN to generate samples
+        return self.sample_from_gan(num_repetitions, output_path=None)
+
+    def _request_uuid(self, condition, num_repetitions, input_file):
         d = {"shape": list(map(lambda x: round(x, self.params_precision), condition.detach().cpu().numpy().tolist())),
              "n_events": num_repetitions,
-             "n_jobs": 16}
+             "n_jobs": 16,
+             "input_file": input_file}
         print("request_params", d)
         r = requests.post(
             "{}/simulate".format(self._address),
@@ -476,7 +593,7 @@ class FullSHiPModel(SHiPModel):
         ## NOTE! In reality muon is -13, but because intially I copied loss function definition from Thesis, mu+
         ## and mu- are actually flipped through the whole loss.
         MUON = 13
-        left_margin = 3.1  # in m
+        left_margin = 3.0  # in m
         right_margin = 3  # in m
         margin_sum = left_margin + right_margin
         y_margin = 5  # in m
@@ -517,8 +634,8 @@ class FullSHiPModel(SHiPModel):
         #  return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
         return hits_loss  #  + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
 
-    def _func(self, condition, num_repetitions):
-        res = self._generate(condition, num_repetitions=num_repetitions)
+    def _func(self, condition, num_repetitions, input_file=None):
+        res = self._generate(condition, num_repetitions=num_repetitions, input_file=input_file)
         y = torch.tensor(res[self.hits_key])[:, :2].float().to(self._device)
         xs = torch.tensor(res[self.kinematics_key]).float().to(self._device)
         psi = np.array(res[self.condition_key])
