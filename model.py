@@ -224,7 +224,7 @@ class SHiPModel(YModel):
         self.kinematics_key = "muons_momentum"
         self.condition_key = "condition"
         self.saved_muon_input_kinematics = None
-        self._iteration_time_limit = 75. # limit of waiting for one iteration in minutes
+        self._iteration_time_limit = 90. # limit of waiting for one iteration in minutes
         self.path_to_enhanced = os.path.expanduser("~/muGAN/SHiP_GAN_module/data_files/" +
                                                    "Seed_auxiliary_values_for_enhanced_generation.npy")
         self.root_filename = "gan_sampled_input.root"
