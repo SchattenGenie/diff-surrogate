@@ -1,3 +1,4 @@
+import time
 from comet_ml import Experiment
 import traceback
 import sys
@@ -304,6 +305,9 @@ def main(model,
 
     logger = str_to_class(logger)(experiment)
     print("Using device = {}".format(device))
+
+    with open ("experiment_id.txt", "w") as f:
+        f.write(os.path.join(experiment.workspace, experiment.project_name, experiment.get_key()))
 
     end_to_end_training(
         epochs=epochs,
