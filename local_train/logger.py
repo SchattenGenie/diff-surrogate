@@ -296,6 +296,7 @@ class BaseLogger(ABC):
             current_psi=current_psi,
             n_samples=100
         )
+        """
         data_real = torch.cat([data, conditions], dim=1).detach().cpu().numpy()
         data_fake = oracle.generate(conditions)
         data_fake = torch.cat([data_fake, conditions], dim=1).detach().cpu().numpy()
@@ -318,6 +319,7 @@ class BaseLogger(ABC):
         precision_outside, recall_outside = compute_prd_from_embedding(data_real, data_fake)
         metrics["precision_outside"].extend(precision_outside.tolist())
         metrics["recall_outside"].extend(recall_outside.tolist())
+        """
         return metrics
 
     @abstractmethod
@@ -414,7 +416,7 @@ class SimpleLogger(BaseLogger):
                                     current_psi=current_psi, step_data_gen=step_data_gen,
                                     scale_step=scale_step, num_samples=num_samples,
                                     num_repetitions=num_repetitions)
-
+        """
         figure, axs = plt.subplots(5, 2, figsize=(18, 8 * 5), dpi=300)
         self._print_num_nans_in_metric(metrics, "func_metric_inside")
         axs[0][0].hist(metrics["func_metric_inside"], bins=50, density=True)
@@ -487,8 +489,8 @@ class SimpleLogger(BaseLogger):
         axs[4][1].step(metrics["precision_outside"], metrics["recall_outside"])
         axs[4][1].grid()
         axs[4][1].set_ylabel("PRD score outside", fontsize=19)
-
-        return metrics, figure
+        """
+        return metrics # , figure
 
     def log_performance(self, y_sampler, current_psi, n_samples):
         super().log_performance(y_sampler=y_sampler, current_psi=current_psi, n_samples=n_samples)
@@ -519,14 +521,14 @@ class CometLogger(SimpleLogger):
                    scale_step=2,
                    num_samples=100,
                    num_repetitions=2000):
-        metrics, figure = super().log_oracle(oracle=oracle, y_sampler=y_sampler,
+        metrics = super().log_oracle(oracle=oracle, y_sampler=y_sampler,
                                              current_psi=current_psi, step_data_gen=step_data_gen,
                                              scale_step=scale_step, num_samples=num_samples,
                                              num_repetitions=num_repetitions)
 
-        self._experiment.log_figure("Oracle state", figure, overwrite=True)
-        self._experiment.log_metric('PRD inside', auc(metrics["precision_inside"], metrics["recall_inside"]), step=self._epoch)
-        self._experiment.log_metric('PRD outside', auc(metrics["precision_outside"], metrics["recall_outside"]), step=self._epoch)
+        # self._experiment.log_figure("Oracle state", figure, overwrite=True)
+        # self._experiment.log_metric('PRD inside', auc(metrics["precision_inside"], metrics["recall_inside"]), step=self._epoch)
+        # self._experiment.log_metric('PRD outside', auc(metrics["precision_outside"], metrics["recall_outside"]), step=self._epoch)
 
         if len(current_psi) == 2:
             self.log_grads_2d(metrics["psis"], metrics, current_psi, step_data_gen)
@@ -586,6 +588,7 @@ class CometLogger(SimpleLogger):
             if len(model_grads_list[0].size()) == 1:
                 model_grads_list = list(map(lambda x: x.reshape(1, -1), model_grads_list))
             model_grad_value = torch.cat(model_grads_list, dim=0).detach()
+            print(model_grad_value.shape, model_grad_value.mean(dim=0), model_grad_value.std(dim=0))
         else:
             # TODO: check gradient estimation
             if batch_size:
@@ -628,13 +631,13 @@ class CometLogger(SimpleLogger):
 
 
     def log_grads_2d(self, psis, metrics, current_psi, step_data_gen):
-        g = plt.figure(figsize=(16, 8))
+        g = plt.figure(figsize=(16, 8), dpi=100)
 
         ax = plt.subplot(1, 2, 1)
         plt.scatter(psis[:, 0],
                     psis[:, 1],
                     c=metrics["func_metric"],
-                    cmap=my_cmap)
+                    cmap=my_cmap, rasterized=True)
         plt.colorbar()
         plt.xlabel(f"$\psi_1$", fontsize=19)
         plt.ylabel(f"$\psi_2$", fontsize=19)
@@ -647,7 +650,7 @@ class CometLogger(SimpleLogger):
         plt.scatter(psis[:, 0],
                     psis[:, 1],
                     c=metrics["grad_metric"],
-                    cmap=my_cmap)
+                    cmap=my_cmap, rasterized=True)
         plt.colorbar()
         plt.xlabel(f"$\psi_1$", fontsize=19)
         plt.ylabel(f"$\psi_2$", fontsize=19)
@@ -658,17 +661,17 @@ class CometLogger(SimpleLogger):
         self._experiment.log_figure("loss_grads_diff_{}".format(self._epoch), g)
         plt.close(g)
 
-        g = plt.figure(figsize=(16, 8))
+        g = plt.figure(figsize=(16, 8), dpi=100)
         metrics["grad_true"] = np.array(metrics["grad_true"])
         metrics["grad_fake"] = np.array(metrics["grad_fake"])
 
-        ax = plt.subplot(1,2,1)
+        ax = plt.subplot(1, 2, 1)
         plt.quiver(psis[:, 0],
                    psis[:, 1],
                    -metrics["grad_true"][:, 0],
                    -metrics["grad_true"][:, 1],
                    np.linalg.norm(metrics["grad_true"],axis=1),
-                   cmap=my_cmap)
+                   cmap=my_cmap, rasterized=True)
         plt.colorbar()
         plt.xlabel(f"$\psi_1$", fontsize=19)
         plt.ylabel(f"$\psi_2$", fontsize=19)
@@ -683,8 +686,9 @@ class CometLogger(SimpleLogger):
                    -metrics["grad_fake"][:, 0],
                    -metrics["grad_fake"][:, 1],
                    np.linalg.norm(metrics["grad_fake"],axis=1),
-                   cmap=my_cmap)
+                   cmap=my_cmap, rasterized=True)
         plt.colorbar()
+
         plt.xlabel(f"$\psi_1$", fontsize=19)
         plt.ylabel(f"$\psi_2$", fontsize=19)
         plt.title("GAN grads", fontsize=15)

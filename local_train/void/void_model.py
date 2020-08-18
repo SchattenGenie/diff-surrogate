@@ -71,12 +71,13 @@ class VoidModel(BaseConditionalGenerationOracle):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         x_grad_total = torch.zeros_like(condition)
-        for k in range(self._K):
-            action = self._policy(condition, self._sigma, N=1)
-            r = self._y_model.func(action, num_repetitions=self._num_repetitions).view(1)  # no .detach()!
-            x_grad_1 = grad([r.sum()], [condition], retain_graph=True)[0]
-            x_grad = x_grad_1
-            x_grad_total += x_grad / self._K
+        # for k in range(self._K):
+        action = self._policy(condition, self._sigma, N=self._K)
+        # print(action.shape)
+        r = self._y_model.func(action, num_repetitions=self._num_repetitions).view(-1)  # no .detach()!
+        x_grad_1 = grad([r.sum()], [condition], retain_graph=True)[0]
+        x_grad = x_grad_1
+        x_grad_total += x_grad / self._K
         return x_grad_total.clone().detach()
 
 
@@ -84,18 +85,17 @@ class VoidModel(BaseConditionalGenerationOracle):
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)
         x_grad_total = torch.zeros_like(condition)
-        for k in range(self._K):
-            action = self._policy(condition, self._sigma, N=1)
-            r = self._y_model.func(action, num_repetitions=self._num_repetitions).detach().view(1)
-            c = self._control_variate(action).view(1)
-            log_prob_condition = condition.detach().clone().to(self.device)
-            log_prob_condition.requires_grad_(True)
-            log_prob = self._policy.log_prob(mu=log_prob_condition, sigma=self._sigma, x=action.detach())
-
-            x_grad_1 = grad([log_prob.sum()], [log_prob_condition], retain_graph=True)[0]
-            x_grad_2 = grad([c.sum()], [condition], retain_graph=True)[0]
-            x_grad = x_grad_1 * (r - c) + x_grad_2
-            x_grad_total += x_grad / self._K
+        # for k in range(self._K):
+        action = self._policy(condition, self._sigma, N=self._K)
+        r = self._y_model.func(action, num_repetitions=self._num_repetitions).detach().view(-1)
+        c = self._control_variate(action).view(-1)
+        log_prob_condition = condition.detach().clone().to(self.device)
+        log_prob_condition.requires_grad_(True)
+        log_prob = self._policy.log_prob(mu=log_prob_condition, sigma=self._sigma, x=action.detach())
+        x_grad_1 = grad([(log_prob * ((r - c).view(-1, 1)).detach()).sum()], [log_prob_condition], retain_graph=True)[0]
+        x_grad_2 = grad([c.sum()], [condition], retain_graph=True)[0]
+        x_grad = x_grad_1 + x_grad_2
+        x_grad_total += x_grad / self._K
 
         return x_grad_total.clone().detach()
 

@@ -2,7 +2,7 @@ model_config = {
     'task': "CRAMER", #"REVERSED_KL", #"CRAMER", #"CRAMER", #"REVERSED_KL",  # 'WASSERSTEIN', # WASSERSTEIN, REVERSED_KL
     'y_dim': 1,
     'x_dim': 1,  # 2, 13
-    'psi_dim': 2,  # obsolete
+    'psi_dim': 10,  # obsolete
     'noise_dim': 150,
     'lr': 1e-4 * 8,
     'batch_size': 512,

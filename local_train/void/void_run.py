@@ -14,7 +14,7 @@ from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, \
-    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate, RosenbrockModelNoisless
+    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate, RosenbrockModelNoisless, BostonNNTuning
 from optimizer import BaseOptimizer
 from typing import Callable
 import time
@@ -89,15 +89,18 @@ class VoidOptimizer(BaseOptimizer):
             # estimate average grads from policy
             grad_void = []
             grad_void_true = []
-            for _ in tqdm(range(500)):
+            for _ in tqdm(range(2)):
                 grad_void.append(self._oracle.grad(x_k, num_repetitions=5000))
-            for _ in tqdm(range(500)):
+            for _ in tqdm(range(2)):
                 grad_void_true.append(self._oracle.policy_grad_true(x_k, num_repetitions=5000))
             grad_void = torch.stack(grad_void)
             grad_void_true = torch.stack(grad_void_true)
             grad_true = self._oracle._y_model.grad(x_k, num_repetitions=5000)
             grad_diffs = (grad_void.mean(dim=0) / grad_void.mean(dim=0).norm()) * ((grad_true / grad_void_true.norm()))
-            print("Grad diffs void - simulator", )
+            print("Grad var", torch.norm(torch.var(grad_void, dim=0, keepdim=True),
+                                                                            dim=1).item())
+            self._logger._experiment.log_metric('Mean grad var', torch.norm(torch.var(grad_void, dim=0, keepdim=True),
+                                                                            dim=1).item(), step=self._logger._epoch)
             self._logger._experiment.log_metric('Grad diff void psi cosine',
                                         grad_diffs.sum().item(),
                                         step=self._logger._epoch)
