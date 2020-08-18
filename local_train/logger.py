@@ -350,7 +350,7 @@ class SimpleLogger(BaseLogger):
 
         figure, axs = plt.subplots(3, 2, figsize=(9 * 2, 9 * 3))
 
-        losses = np.array(self._optimizer_logs['func'])
+        losses = np.array(self._optimizer_logs['func']).ravel()
         axs[0][0].plot(losses)
         axs[0][0].grid()
         axs[0][0].set_ylabel("Loss", fontsize=19)
@@ -607,27 +607,29 @@ class CometLogger(SimpleLogger):
         self._experiment.log_metric('Mean grad var', torch.norm(torch.var(model_grad_value, dim=0, keepdim=True),
                                                                 dim=1).item(), step=self._epoch)
 
-        model_grad_value_saved = model_grad_value
-        model_grad_value_saved = model_grad_value_saved / model_grad_value_saved.norm(keepdim=True, dim=1)
-        model_grad_value = model_grad_value.mean(dim=0)
-        model_grad_value /= model_grad_value.norm()
+        # model_grad_value = model_grad_value.mean(dim=0)
+        # model_grad_value /= model_grad_value.norm()
+        # model_grad_value_saved = model_grad_value
+        # model_grad_value_saved = model_grad_value_saved / model_grad_value_saved.norm(keepdim=True, dim=1)
+        # model_grad_value = model_grad_value.mean(dim=0)
+        # model_grad_value /= model_grad_value.norm()
 
+        true_grad_values = []
         if log_grad_diff:
             true_grad_value = y_sampler.grad(_current_psi, num_repetitions=num_repetitions)
-            # print("2", true_grad_value.shape)
-            true_grad_value = true_grad_value.mean(dim=0)
-            true_grad_value /= true_grad_value.norm()
-            # print("3", model_grad_value.shape, true_grad_value.shape)
-            self._experiment.log_metric('Mean grad diff',
-                                        torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+            # true_grad_value = true_grad_value.mean(dim=0)
+            # true_grad_value /= true_grad_value.norm()
+            # self._experiment.log_metric('Mean grad diff',
+            #                             torch.norm(model_grad_value - true_grad_value).item(), step=self._epoch)
+        #print("GRADS!", true_grad_value.shape, model_grad_value.shape)
 
-            #  self._experiment.log_metric('Mean grad diff cos',
-            #                             (model_grad_value_saved * true_grad_value).sum(dim=1).mean().item(), step=self._epoch)
+        cosine_distance = torch.nn.functional.cosine_similarity(true_grad_value, model_grad_value)
+        #print(cosine_distance.shape)
 
-
+        self._experiment.log_metric('Mean grad diff',
+                                    cosine_distance.mean().item(), step=self._epoch)
 
         #self._experiment.log_metric('True grad', np.sum(self._perfomance_logs['n_samples']), step=self._epoch)
-
 
 
     def log_grads_2d(self, psis, metrics, current_psi, step_data_gen):

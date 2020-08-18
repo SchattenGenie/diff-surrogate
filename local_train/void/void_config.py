@@ -5,5 +5,5 @@ model_config = {
     "x_dim": 13,
     "K": 1,
     "lr": 0.1
-}  
+}
 # in the intial implementation lr was not used at all, all opt params were default

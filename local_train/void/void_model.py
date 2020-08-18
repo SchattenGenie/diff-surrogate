@@ -80,7 +80,6 @@ class VoidModel(BaseConditionalGenerationOracle):
         x_grad_total += x_grad / self._K
         return x_grad_total.clone().detach()
 
-
     def grad(self, condition: torch.Tensor, **kwargs) -> torch.Tensor:
         condition = condition.detach().clone().to(self.device)
         condition.requires_grad_(True)

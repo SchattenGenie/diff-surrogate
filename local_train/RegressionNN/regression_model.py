@@ -22,8 +22,9 @@ class RegressionModel(BaseConditionalGenerationOracle):
 
         self._predict_risk = predict_risk
         self._output_dim = 1 if self._predict_risk else y_dim
-        self._net = RegressionNet(self._output_dim, psi_dim=psi_dim, x_dim=x_dim)
-        self.logger = None  # logger
+        self._x_dim = 0 if self._predict_risk else x_dim
+        self._net = RegressionNet(self._output_dim, psi_dim=psi_dim, x_dim=self._x_dim)
+        self.logger = logger
         self._losses = RegressionLosses()
         self.attention_net = None
 

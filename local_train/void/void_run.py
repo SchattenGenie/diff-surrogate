@@ -84,7 +84,7 @@ class VoidOptimizer(BaseOptimizer):
                                          n_samples=self._n_samples, upload_pickle=False)
             self._logger.log_grads(self._oracle,
                                   y_sampler=self._oracle._y_model,
-                                  current_psi=x_k, num_repetitions=5000)
+                                  current_psi=x_k, num_repetitions=30000, n_samples=100, log_grad_diff=True)
 
             # estimate average grads from policy
             grad_void = []
@@ -198,7 +198,8 @@ def main(
 
     try:
         logger.log_optimizer(optimizer)
-        logger.log_grads(model, y_sampler=y_model, current_psi=current_psi, num_repetitions=5000)
+        logger.log_grads(model, y_sampler=y_model, current_psi=x_k, num_repetitions=30000,
+                         n_samples=100, log_grad_diff=True)
         logger.log_performance(y_sampler=y_model,
                                current_psi=current_psi,
                                n_samples=5000)
