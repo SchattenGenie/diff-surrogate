@@ -239,7 +239,7 @@ set -x
 {1}
 """
 
-    command_cluster = "sbatch -c {0} -t {1} --gpus={2} run_clustering.sh"
+    command_cluster = "sbatch -c {0} -t {1} --gpus={2} run_command.sh"
     something_to_execute = True
     processes = []
     while something_to_execute:
