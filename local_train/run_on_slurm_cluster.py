@@ -8,16 +8,17 @@ import shlex
 import json
 import subprocess
 import time
+import click
 
-def get_NonlinearSubmanifoldHump_experiments():
+def get_NonlinearSubmanifoldHump_experiments(comet_api):
     experiments = comet_api.get(workspace='schattengenie', project_name='gaussianmixturehumpmodeldeepdegenerate')
     return experiments
 
-def get_BostonNN_experiments():
+def get_BostonNN_experiments(comet_api):
     experiments = comet_api.get(workspace='schattengenie', project_name='bostonnntuning')
     return experiments
 
-def get_R10_experiments():
+def get_R10_experiments(comet_api):
     experiments = comet_api.get(workspace='schattengenie', project_name='r10') + comet_api.get(workspace='schattengenie', project_name='r10bock')
 
     problems = [
@@ -34,7 +35,7 @@ def get_R10_experiments():
     ]
     return experiments
 
-def get_SubmanifoldRosenbrock100_experiments():
+def get_SubmanifoldRosenbrock100_experiments(comet_api):
     experiments = (comet_api.get(workspace='schattengenie', project_name='rosenbrockmodeldegenerate')
                    + comet_api.get(workspace='schattengenie', project_name='rosenbrockmodeldegeneratetest'))
 
@@ -51,7 +52,7 @@ def get_SubmanifoldRosenbrock100_experiments():
     ]
     return experiments
 
-def get_Hump_experiments():
+def get_Hump_experiments(comet_api):
     problems = [
         "shir994/hump-model/9de86fbf63784d6c85cbd2453222750c",  # lts
         "schattengenie/gp-opt/7b6f49d5838e4dfeb96c2eadf7f986c7",  # gp
@@ -184,6 +185,9 @@ parameters_per_problem = {
 @click.option('--problem_to_run', type=str, default='NonlinearSubmanifoldHump')
 @click.option('--batch_size', type=int, default=20)
 def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
+    comet_api = API()
+    comet_api.get()
+
     data = open('./diff_surrogates_commands.txt').read().replace("---", "")
     data = [d for d in data.split("#") if len(d)]
     commands_to_run_per_problem_per_method = defaultdict(dict)
@@ -230,26 +234,27 @@ def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
         dict_file.write('model_config = {}'.format(str(lts_config.model_config)))
 
     command_to_sh = """#!/bin/bash
-    set -x
-    {0}
-    {1}
-    """
+set -x
+{0}
+{1}
+"""
 
     command_cluster = "sbatch -c {0} -t {1} --gpus={2} run_clustering.sh"
     something_to_execute = True
+    processes = []
     while something_to_execute:
         something_to_execute = False
 
         if problem_to_run == "Hump":
-            experiments = get_Hump_experiments()
+            experiments = get_Hump_experiments(comet_api)
         elif problem_to_run == "Rosenbrock10":
-            experiments = get_R10_experiments()
+            experiments = get_R10_experiments(comet_api)
         elif problem_to_run == "NonlinearSubmanifoldHump":
-            experiments = get_NonlinearSubmanifoldHump_experiments()
+            experiments = get_NonlinearSubmanifoldHump_experiments(comet_api)
         elif problem_to_run == "BostonNN":
-            experiments = get_BostonNN_experiments()
+            experiments = get_BostonNN_experiments(comet_api)
         elif problem_to_run == "SubmanifoldRosenbrock100":
-            experiments = get_SubmanifoldRosenbrock100_experiments()
+            experiments = get_SubmanifoldRosenbrock100_experiments(comet_api)
 
         # iterating over
         for method in methods:
@@ -270,7 +275,9 @@ def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
                         command_to_sh_formatted = command_to_sh.format("cd ./baseline_scripts/", command)
                     elif method in ["gp", "GAN", "FFJORD"]:
                         command_to_sh_formatted = command_to_sh.format("cd ./", command)
-
+                else:
+                    continue
+                print(method, num_runs)
                 with open("run_command.sh", "w") as file:
                     file.write(command_to_sh_formatted)
                 time.sleep(1)
@@ -285,6 +292,7 @@ def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
                     command_cluster_formatted = command_cluster.format(2, 2 * 24 * 60, 1)  # 2 days, 1 GPU
 
                 print(method, name)
+                print(command_to_sh_formatted)
                 process = subprocess.Popen(
                     command_cluster_formatted,
                     shell=True,
@@ -293,6 +301,7 @@ def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
                     stderr=subprocess.DEVNULL
                 )
                 processes.append(process)
+                pr_count = subprocess.Popen("squeue | grep vbelavin | wc -l", shell=True, stdout=subprocess.PIPE)
                 out, err = pr_count.communicate()
                 if int(out) > batch_size:
                     while int(out) > batch_size:
@@ -300,6 +309,7 @@ def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
                         time.sleep(60)
                         pr_count = subprocess.Popen("squeue | grep vbelavin | wc -l", shell=True, stdout=subprocess.PIPE)
                         out, err = pr_count.communicate()
+
 
 if __name__ == "__main__":
     main()
