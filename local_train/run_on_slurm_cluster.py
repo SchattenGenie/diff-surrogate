@@ -246,7 +246,7 @@ set -x
         something_to_execute = False
 
         if problem_to_run == "Hump":
-            experiments = get_Hump_experiments(comet_api)
+            experiments = get_Hump_experiments(comet_api)c
         elif problem_to_run == "Rosenbrock10":
             experiments = get_R10_experiments(comet_api)
         elif problem_to_run == "NonlinearSubmanifoldHump":
@@ -266,6 +266,7 @@ set -x
                     num_runs = len(d[int(name.split('_')[0])])
                 else:
                     num_runs = len(d[method])
+                print(problem_to_run, method, num_runs)
 
                 if int(num_runs) < 10:
                     something_to_execute = True
@@ -277,7 +278,7 @@ set -x
                         command_to_sh_formatted = command_to_sh.format("cd ./", command)
                 else:
                     continue
-                print(method, num_runs)
+
                 with open("run_command.sh", "w") as file:
                     file.write(command_to_sh_formatted)
                 time.sleep(1)
