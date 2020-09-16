@@ -273,9 +273,9 @@ set -x
                     something_to_execute = True
                     if method == "void":
                         command_to_sh_formatted = command_to_sh.format("cd ./void/", command)
-                    elif method == "num_diff" or method == "cma_es":
+                    elif method == "num_diff" or method == "cma_es" or method == "gp":
                         command_to_sh_formatted = command_to_sh.format("cd ./baseline_scripts/", command)
-                    elif method in ["gp", "GAN", "FFJORD"]:
+                    elif method in ["GAN", "FFJORD"]:
                         command_to_sh_formatted = command_to_sh.format("cd ./", command)
                     executed_on_cluster[method] += 1
                 else:
