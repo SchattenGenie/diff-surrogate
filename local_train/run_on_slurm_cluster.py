@@ -241,6 +241,7 @@ set -x
 
     command_cluster = "sbatch -c {0} -t {1} --gpus={2} run_command.sh"
     something_to_execute = True
+    executed_on_cluster = defaultdict(int)
     processes = []
     while something_to_execute:
         something_to_execute = False
@@ -268,7 +269,7 @@ set -x
                     num_runs = len(d[method])
                 print(problem_to_run, method, num_runs)
 
-                if int(num_runs) < 10:
+                if int(num_runs) + executed_on_cluster["method"] < 10:
                     something_to_execute = True
                     if method == "void":
                         command_to_sh_formatted = command_to_sh.format("cd ./void/", command)
@@ -276,6 +277,7 @@ set -x
                         command_to_sh_formatted = command_to_sh.format("cd ./baseline_scripts/", command)
                     elif method in ["gp", "GAN", "FFJORD"]:
                         command_to_sh_formatted = command_to_sh.format("cd ./", command)
+                    executed_on_cluster[method] += 1
                 else:
                     continue
 
