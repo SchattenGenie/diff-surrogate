@@ -246,7 +246,7 @@ set -x
         something_to_execute = False
 
         if problem_to_run == "Hump":
-            experiments = get_Hump_experiments(comet_api)c
+            experiments = get_Hump_experiments(comet_api)
         elif problem_to_run == "Rosenbrock10":
             experiments = get_R10_experiments(comet_api)
         elif problem_to_run == "NonlinearSubmanifoldHump":
@@ -288,7 +288,7 @@ set -x
                 elif method == "num_diff" or method == "cma_es":
                     command_cluster_formatted = command_cluster.format(2, 24 * 60, 0)  # 24 hours
                 elif method in ["gp"]:
-                    command_cluster_formatted = command_cluster.format(2, 5 * 24 * 60, 0)  # 5 days
+                    command_cluster_formatted = command_cluster.format(2, 7 * 24 * 60, 0)  # 5 days
                 elif method in ["GAN", "FFJORD"]:
                     command_cluster_formatted = command_cluster.format(2, 2 * 24 * 60, 1)  # 2 days, 1 GPU
 
