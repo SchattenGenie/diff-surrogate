@@ -275,6 +275,8 @@ set -x
                         command_to_sh_formatted = command_to_sh.format("cd ./void/", command)
                     elif method == "num_diff" or method == "cma_es" or method == "gp":
                         command_to_sh_formatted = command_to_sh.format("cd ./baseline_scripts/", command)
+                    elif method == "lts":
+                        command_to_sh_formatted = command_to_sh.format("cd ./learn_to_sim/", command)
                     elif method in ["GAN", "FFJORD"]:
                         command_to_sh_formatted = command_to_sh.format("cd ./", command)
                     executed_on_cluster[method] += 1
@@ -287,7 +289,7 @@ set -x
 
                 if method == "void":
                     command_cluster_formatted = command_cluster.format(2, 24 * 60, 0)  # 24 hours
-                elif method == "num_diff" or method == "cma_es":
+                elif method == "num_diff" or method == "cma_es" or method == "lts":
                     command_cluster_formatted = command_cluster.format(2, 24 * 60, 0)  # 24 hours
                 elif method in ["gp"]:
                     command_cluster_formatted = command_cluster.format(2, 7 * 24 * 60, 0)  # 5 days
