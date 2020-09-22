@@ -180,11 +180,11 @@ parameters_per_problem = {
     }
 }
 
-
 @click.command()
 @click.option('--problem_to_run', type=str, default='NonlinearSubmanifoldHump')
 @click.option('--batch_size', type=int, default=20)
-def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20):
+@click.option('--batch_size_gpu', type=int, default=20)
+def main(problem_to_run="NonlinearSubmanifoldHump", batch_size=20, batch_size_gpu=20):
     comet_api = API()
     comet_api.get()
 
@@ -239,7 +239,7 @@ set -x
 {1}
 """
 
-    command_cluster = "sbatch -c {0} -t {1} --gpus={2} run_command.sh"
+    command_cluster = "sbatch -c {0} -t {1} --gpus={2} --job-name={3} run_command.sh"
     something_to_execute = True
     executed_on_cluster = defaultdict(int)
     processes = []
@@ -269,6 +269,11 @@ set -x
                     num_runs = len(d[method])
                 print(problem_to_run, method, num_runs)
 
+                pr_count = subprocess.Popen("squeue | grep vbelavin | grep gan | wc -l", shell=True, stdout=subprocess.PIPE)
+                out, err = pr_count.communicate()
+                if method in ["GAN", "FFJORD"] and int(out) > batch_size_gpu:
+                    continue
+
                 if int(num_runs) + executed_on_cluster["method"] < 10:
                     something_to_execute = True
                     if method == "void":
@@ -288,13 +293,13 @@ set -x
                 time.sleep(1)
 
                 if method == "void":
-                    command_cluster_formatted = command_cluster.format(2, 24 * 60, 0)  # 24 hours
+                    command_cluster_formatted = command_cluster.format(2, 24 * 60, 0, "lgso_void")  # 24 hours
                 elif method == "num_diff" or method == "cma_es" or method == "lts":
-                    command_cluster_formatted = command_cluster.format(2, 24 * 60, 0)  # 24 hours
+                    command_cluster_formatted = command_cluster.format(2, 24 * 60, 0, "lgso_numeric")  # 24 hours
                 elif method in ["gp"]:
-                    command_cluster_formatted = command_cluster.format(2, 7 * 24 * 60, 0)  # 5 days
+                    command_cluster_formatted = command_cluster.format(2, 7 * 24 * 60, 0, "lgso_gp")  # 5 days
                 elif method in ["GAN", "FFJORD"]:
-                    command_cluster_formatted = command_cluster.format(2, 2 * 24 * 60, 1)  # 2 days, 1 GPU
+                    command_cluster_formatted = command_cluster.format(2, 2 * 24 * 60, 1, "lgso_gan")  # 2 days, 1 GPU
 
                 print(method, name)
                 print(command_to_sh_formatted)

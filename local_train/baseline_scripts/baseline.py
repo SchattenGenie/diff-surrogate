@@ -19,7 +19,7 @@ from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, 
 from num_diff_schemes import compute_gradient_of_vector_function
 from num_diff_schemes import n_order_scheme, richardson
 from optimizer import *
-
+import time
 
 def get_freer_gpu():
     """
@@ -163,6 +163,8 @@ def main(
     optimizer = optimizer_cls(oracle=ndiff, x=init_psi, **optimizer_config)
 
     for iter in range(max_iters):
+        # so that comet not throttling
+        time.sleep(1.)
         current_psi, status, history = optimizer.optimize()
         print(current_psi)
         # if iter % 10 == 0:

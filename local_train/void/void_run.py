@@ -68,6 +68,8 @@ class VoidOptimizer(BaseOptimizer):
         self._n_samples = n_samples
 
     def _step(self):
+        # for comet throtling problemm...
+        time.sleep(1.)
         init_time = time.time()
 
         self._oracle.step()
