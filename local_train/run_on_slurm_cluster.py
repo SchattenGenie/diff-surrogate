@@ -36,8 +36,14 @@ def get_R10_experiments(comet_api):
     return experiments
 
 def get_SubmanifoldRosenbrock100_experiments(comet_api):
-    experiments = (comet_api.get(workspace='schattengenie', project_name='rosenbrockmodeldegenerate')
-                   + comet_api.get(workspace='schattengenie', project_name='rosenbrockmodeldegeneratetest'))
+    experiments = (
+            comet_api.get(workspace='schattengenie', project_name='rosenbrockmodeldegenerate') +
+            comet_api.get(workspace='schattengenie', project_name='rosenbrockmodeldegeneratetest') +
+            comet_api.get(workspace='schattengenie', project_name='RosenbrockModelDegenerateBOCK') +
+            comet_api.get(workspace='schattengenie', project_name='RosenbrockModelDegenerateLTSCMA') +
+            comet_api.get(workspace='schattengenie', project_name='RosenbrockModelDegenerateLTS') +
+            comet_api.get(workspace='schattengenie', project_name='RosenbrockModelDegenerateVoid')
+    )
 
     problems = [
         "schattengenie/rosenbrockmodeldegeneratelts/7dac8f7f0b3440bbac3efdf1be13726d",  # lts
