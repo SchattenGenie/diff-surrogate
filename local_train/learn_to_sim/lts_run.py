@@ -8,7 +8,8 @@ sys.path.append('../')
 sys.path.append('../..')
 from typing import List, Union
 from model import YModel, RosenbrockModel, MultimodalSingularityModel, GaussianMixtureHumpModel, \
-                  LearningToSimGaussianModel, BernoulliModel, RosenbrockModelDegenerate
+                  LearningToSimGaussianModel, BernoulliModel, RosenbrockModelDegenerate, BostonNNTuning, \
+                  GaussianMixtureHumpModelDeepDegenerate
 from optimizer import *
 from lts_model import LearnToSimModel
 from logger import SimpleLogger, CometLogger, GANLogger
