@@ -144,6 +144,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         print(self.device)
         trainable_parameters = list(self._model.parameters())
         optimizer = swats.SWATS(trainable_parameters, lr=self._lr, verbose=True)
+        # optimizer = torch.optim.Adam(trainable_parameters, lr=self._lr, betas=(0.5, 0.999))
         best_params = self._model.state_dict()
         best_loss = 1e6
         early_stopping = EarlyStopping(patience=200, verbose=True)
@@ -191,7 +192,7 @@ class FFJORDModel(BaseConditionalGenerationOracle):
         self._model.load_state_dict(best_params)
         self.eval()
         self._sample_fn, self._density_fn = get_transforms(self._model)
-        if self.logger:
+        if False:  # turn off
             self.logger.log_validation_metrics(self._y_model, y, condition, self,
                                                (condition[:, :self._psi_dim].min(dim=0)[0].view(-1),
                                                 condition[:, :self._psi_dim].max(dim=0)[0].view(-1)),

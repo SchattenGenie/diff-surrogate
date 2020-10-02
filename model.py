@@ -1621,7 +1621,9 @@ class BostonNNTuning(YModel):
         self._d = dict([
             (tuple(x.detach().cpu().numpy().astype(np.float32)), y_.detach().cpu().numpy().astype(np.float32)[0])
             for x, y_ in zip(self._X, self._y)])
-        torch.manual_seed(np.random.get_state()[1][-1])
+        # print("torch seed: ", np.random.get_state()[1][-1])
+        torch.seed()
+        # torch.manual_seed(np.random.get_state()[1][-1])
 
     def _set_parameters(self, psi):
         self._net[0].weight.data = psi[: 6 * 13].view(6, 13).detach().clone().float().to(self._device)

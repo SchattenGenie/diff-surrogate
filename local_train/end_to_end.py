@@ -100,7 +100,7 @@ def end_to_end_training(epochs: int,
 
     :return:
     """
-    #gan_logger = GANLogger(experiment)
+    # gan_logger = GANLogger(experiment)
     gan_logger = RegressionLogger(experiment)
     # gan_logger = None
 
