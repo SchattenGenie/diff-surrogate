@@ -176,7 +176,7 @@ parameters_per_problem = {
     },
     "NonlinearSubmanifoldHump": {
         "psi_dim": 40,
-        "x_dim": 1,
+        "x_dim": 2,
         "y_dim": 1
     },
     "BostonNN": {
