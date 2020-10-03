@@ -303,9 +303,9 @@ set -x
                 elif method == "num_diff" or method == "cma_es" or method == "lts":
                     command_cluster_formatted = command_cluster.format(2, 24 * 60, 0, "lgso_numeric")  # 24 hours
                 elif method in ["gp"]:
-                    command_cluster_formatted = command_cluster.format(2, 7 * 24 * 60, 0, "lgso_gp")  # 5 days
+                    command_cluster_formatted = command_cluster.format(2, 14 * 24 * 60, 0, "lgso_gp")  # 14 days
                 elif method in ["GAN", "FFJORD"]:
-                    command_cluster_formatted = command_cluster.format(2, 2 * 24 * 60, 1, "lgso_gan")  # 2 days, 1 GPU
+                    command_cluster_formatted = command_cluster.format(2, 3 * 24 * 60, 1, "lgso_gan")  # 2 days, 1 GPU
 
                 print(method, name)
                 print(command_to_sh_formatted)
