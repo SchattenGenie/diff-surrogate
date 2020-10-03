@@ -14,7 +14,8 @@ from logger import SimpleLogger, CometLogger
 from base_model import BaseConditionalGenerationOracle
 sys.path.append('../..')
 from model import YModel, LearningToSimGaussianModel, GaussianMixtureHumpModel, RosenbrockModel, \
-    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate, RosenbrockModelNoisless, BostonNNTuning
+    RosenbrockModelDegenerateInstrict, RosenbrockModelDegenerate, RosenbrockModelNoisless, BostonNNTuning, \
+    GaussianMixtureHumpModelDeepDegenerate
 from optimizer import BaseOptimizer
 from typing import Callable
 import time
