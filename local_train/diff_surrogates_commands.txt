@@ -5,7 +5,7 @@ python end_to_end.py --model GANModel --project_name HumpExp --work_space schat
 ```
 
 ```jsx
-python end_to_end.py --model FFJORDModel --model_config_file ffjord_config --project_name HumpExp --work_space schattengenie --model_config_file ffjord_config --tags GaussianMixtureHumpModel,FFJORDModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModel --step_data_gen 0.5 --init_psi 2.,0. --n_samples 4 --lr 0.1
+python end_to_end.py --model FFJORDModel --model_config_file ffjord_config --project_name HumpExp --work_space schattengenie --model_config_file ffjord_config --tags GaussianMixtureHumpModel,FFJORDModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModel --reuse_optimizer True --step_data_gen 0.5 --init_psi 2.,0. --n_samples 4 --lr 0.1
 ```
 
 ```jsx
@@ -33,11 +33,11 @@ python lts_run.py --model LearnToSimModel --optimizer TorchOptimizer --optimized
 # Rosenbrock10
 
 ```jsx
-python end_to_end.py --model GANModel --project_name R10 --work_space schattengenie --tags R10,GANModel --optimizer TorchOptimizer --optimized_function RosenbrockModel --step_data_gen 0.2 --init_psi 2.,2.,2.,2.,2.,2.,2.,2.,2.,2. --n_samples 15 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name R10 --work_space schattengenie --tags R10,GANModel --optimizer TorchOptimizer --optimized_function RosenbrockModel --step_data_gen 0.2 --init_psi 2.,2.,2.,2.,2.,2.,2.,2.,2.,2. --n_samples 15 --reuse_optimizer True --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model FFJORDModel --model_config_file ffjord_config --project_name R10 --work_space schattengenie --tags R10,FFJORDModel --model_config_file ffjord_config --optimizer TorchOptimizer --optimized_function RosenbrockModel --step_data_gen 0.2 --init_psi 2.,2.,2.,2.,2.,2.,2.,2.,2.,2. --n_samples 15 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model FFJORDModel --model_config_file ffjord_config --project_name R10 --work_space schattengenie --tags R10,FFJORDModel --model_config_file ffjord_config --optimizer TorchOptimizer --optimized_function RosenbrockModel --step_data_gen 0.2 --init_psi 2.,2.,2.,2.,2.,2.,2.,2.,2.,2. --reuse_optimizer True --n_samples 15 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
@@ -65,11 +65,11 @@ python lts_run.py --model LearnToSimModel --optimizer TorchOptimizer --optimized
 # Submanifold Rosenbrock 100
 
 ```jsx
-python end_to_end.py --model GANModel --project_name RosenbrockModelDegenerate --work_space schattengenie --tags RosenbrockModelDegenerate,GANModel --optimizer TorchOptimizer --optimized_function RosenbrockModelDegenerate --step_data_gen 0.2 --init_psi 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name RosenbrockModelDegenerate --work_space schattengenie --tags RosenbrockModelDegenerate,GANModel --optimizer TorchOptimizer --optimized_function RosenbrockModelDegenerate --step_data_gen 0.2 --init_psi 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --reuse_optimizer True --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model FFJORDModel --model_config_file ffjord_config --project_name RosenbrockModelDegenerate --work_space schattengenie --tags RosenbrockModelDegenerate,FFJORDModel --optimizer TorchOptimizer --optimized_function RosenbrockModelDegenerate --step_data_gen 0.2 --init_psi 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model FFJORDModel --model_config_file ffjord_config --project_name RosenbrockModelDegenerate --work_space schattengenie --tags RosenbrockModelDegenerate,FFJORDModel --optimizer TorchOptimizer --optimized_function RosenbrockModelDegenerate --step_data_gen 0.2 --init_psi 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --reuse_optimizer True --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
@@ -87,7 +87,7 @@ python baseline.py --project_name RosenbrockModelDegenerateLTSCMA --work_space
 ```jsx
 python lts_run.py --model LearnToSimModel --optimizer TorchOptimizer --optimized_function RosenbrockModelDegenerate --model_config_file lts_config --project_name RosenbrockModelDegenerateLTS --work_space schattengenie --tags lts,adam --epochs 2000 --n_samples 25 --n_samples_per_dim 3000 --init_psi 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --reuse_optimizer True
 ```
-
+reuse_optimizer
 ```jsx
 python void_run.py --project_name RosenbrockModelDegenerateVoid --work_space schattengenie --optimizer_config_file optimizer_config_void --tags void,RosenbrockModelDegenerate --optimized_function RosenbrockModelDegenerate --init_psi 0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.
 ```
@@ -105,19 +105,19 @@ python baseline.py --project_name GaussianMixtureHumpModelDeepDegenerate --work
 ```
 
 ```jsx
-python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 3 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --reuse_optimizer True --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 3 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 5 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --reuse_optimizer True --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 5 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 10 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --reuse_optimizer True --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 10 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name GaussianMixtureHumpModelDeepDegenerate --reuse_optimizer True --work_space schattengenie --tags GaussianMixtureHumpModelDeepDegenerate,GANModel --optimizer TorchOptimizer --optimized_function GaussianMixtureHumpModelDeepDegenerate --step_data_gen 0.2 --init_psi 2.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
@@ -137,15 +137,15 @@ python baseline.py --project_name GaussianMixtureHumpModelDeepDegenerate --wor
 # BostonNN
 
 ```jsx
-python end_to_end.py --model GANModel --project_name BostonNNTuning --work_space schattengenie --tags BostonNNTuning,GANModel --optimizer TorchOptimizer --optimized_function BostonNNTuning --step_data_gen 0.1 --init_psi 0.0215,0.0763,0.0879,0.0102,0.095,0.0508,0.088,0.101,0.0782,0.0684,0.0658,0.0509,0.0207,0.0618,0.0756,0.00784,0.0968,0.0685,0.0113,0.0745,0.00154,0.0772,0.0472,0.000906,0.0723,0.0779,0.0594,0.0785,0.0918,0.0634,0.0853,0.105,0.00407,0.0789,0.0035,0.0581,0.0375,0.0632,0.0669,0.00293,0.0901,0.0208,0.0388,0.0893,0.00104,0.0598,0.0745,0.08,0.0283,0.0106,0.0371,0.0667,0.0331,0.0356,0.0661,0.0554,0.084,0.0398,0.00286,0.0281,0.0246,0.0208,0.0358,0.033,0.0421,0.0505,0.00544,0.0269,0.00527,0.0569,0.00538,0.0786,0.102,0.0452,0.0444,0.105,0.0765,0.0689,0.0249,0.0933,0.037,0.0762,0.0882,0.0505,0.0688,0.0666,0.101,0.0857,0.0488,0.0303,22.5328 --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name BostonNNTuning --reuse_optimizer True --work_space schattengenie --tags BostonNNTuning,GANModel --optimizer TorchOptimizer --optimized_function BostonNNTuning --step_data_gen 0.1 --init_psi 0.0215,0.0763,0.0879,0.0102,0.095,0.0508,0.088,0.101,0.0782,0.0684,0.0658,0.0509,0.0207,0.0618,0.0756,0.00784,0.0968,0.0685,0.0113,0.0745,0.00154,0.0772,0.0472,0.000906,0.0723,0.0779,0.0594,0.0785,0.0918,0.0634,0.0853,0.105,0.00407,0.0789,0.0035,0.0581,0.0375,0.0632,0.0669,0.00293,0.0901,0.0208,0.0388,0.0893,0.00104,0.0598,0.0745,0.08,0.0283,0.0106,0.0371,0.0667,0.0331,0.0356,0.0661,0.0554,0.084,0.0398,0.00286,0.0281,0.0246,0.0208,0.0358,0.033,0.0421,0.0505,0.00544,0.0269,0.00527,0.0569,0.00538,0.0786,0.102,0.0452,0.0444,0.105,0.0765,0.0689,0.0249,0.0933,0.037,0.0762,0.0882,0.0505,0.0688,0.0666,0.101,0.0857,0.0488,0.0303,22.5328 --n_samples 20 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model GANModel --project_name BostonNNTuning --work_space schattengenie --tags BostonNNTuning,GANModel --optimizer TorchOptimizer --optimized_function BostonNNTuning --step_data_gen 0.1 --init_psi 0.0215,0.0763,0.0879,0.0102,0.095,0.0508,0.088,0.101,0.0782,0.0684,0.0658,0.0509,0.0207,0.0618,0.0756,0.00784,0.0968,0.0685,0.0113,0.0745,0.00154,0.0772,0.0472,0.000906,0.0723,0.0779,0.0594,0.0785,0.0918,0.0634,0.0853,0.105,0.00407,0.0789,0.0035,0.0581,0.0375,0.0632,0.0669,0.00293,0.0901,0.0208,0.0388,0.0893,0.00104,0.0598,0.0745,0.08,0.0283,0.0106,0.0371,0.0667,0.0331,0.0356,0.0661,0.0554,0.084,0.0398,0.00286,0.0281,0.0246,0.0208,0.0358,0.033,0.0421,0.0505,0.00544,0.0269,0.00527,0.0569,0.00538,0.0786,0.102,0.0452,0.0444,0.105,0.0765,0.0689,0.0249,0.0933,0.037,0.0762,0.0882,0.0505,0.0688,0.0666,0.101,0.0857,0.0488,0.0303,22.5328 --n_samples 40 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name BostonNNTuning --reuse_optimizer True --work_space schattengenie --tags BostonNNTuning,GANModel --optimizer TorchOptimizer --optimized_function BostonNNTuning --step_data_gen 0.1 --init_psi 0.0215,0.0763,0.0879,0.0102,0.095,0.0508,0.088,0.101,0.0782,0.0684,0.0658,0.0509,0.0207,0.0618,0.0756,0.00784,0.0968,0.0685,0.0113,0.0745,0.00154,0.0772,0.0472,0.000906,0.0723,0.0779,0.0594,0.0785,0.0918,0.0634,0.0853,0.105,0.00407,0.0789,0.0035,0.0581,0.0375,0.0632,0.0669,0.00293,0.0901,0.0208,0.0388,0.0893,0.00104,0.0598,0.0745,0.08,0.0283,0.0106,0.0371,0.0667,0.0331,0.0356,0.0661,0.0554,0.084,0.0398,0.00286,0.0281,0.0246,0.0208,0.0358,0.033,0.0421,0.0505,0.00544,0.0269,0.00527,0.0569,0.00538,0.0786,0.102,0.0452,0.0444,0.105,0.0765,0.0689,0.0249,0.0933,0.037,0.0762,0.0882,0.0505,0.0688,0.0666,0.101,0.0857,0.0488,0.0303,22.5328 --n_samples 40 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx
-python end_to_end.py --model GANModel --project_name BostonNNTuning --work_space schattengenie --tags BostonNNTuning,GANModel --optimizer TorchOptimizer --optimized_function BostonNNTuning --step_data_gen 0.1 --init_psi 0.0215,0.0763,0.0879,0.0102,0.095,0.0508,0.088,0.101,0.0782,0.0684,0.0658,0.0509,0.0207,0.0618,0.0756,0.00784,0.0968,0.0685,0.0113,0.0745,0.00154,0.0772,0.0472,0.000906,0.0723,0.0779,0.0594,0.0785,0.0918,0.0634,0.0853,0.105,0.00407,0.0789,0.0035,0.0581,0.0375,0.0632,0.0669,0.00293,0.0901,0.0208,0.0388,0.0893,0.00104,0.0598,0.0745,0.08,0.0283,0.0106,0.0371,0.0667,0.0331,0.0356,0.0661,0.0554,0.084,0.0398,0.00286,0.0281,0.0246,0.0208,0.0358,0.033,0.0421,0.0505,0.00544,0.0269,0.00527,0.0569,0.00538,0.0786,0.102,0.0452,0.0444,0.105,0.0765,0.0689,0.0249,0.0933,0.037,0.0762,0.0882,0.0505,0.0688,0.0666,0.101,0.0857,0.0488,0.0303,22.5328 --n_samples 60 --optimizer_config_file optimizer_config --lr 0.1
+python end_to_end.py --model GANModel --project_name BostonNNTuning --reuse_optimizer True --work_space schattengenie --tags BostonNNTuning,GANModel --optimizer TorchOptimizer --optimized_function BostonNNTuning --step_data_gen 0.1 --init_psi 0.0215,0.0763,0.0879,0.0102,0.095,0.0508,0.088,0.101,0.0782,0.0684,0.0658,0.0509,0.0207,0.0618,0.0756,0.00784,0.0968,0.0685,0.0113,0.0745,0.00154,0.0772,0.0472,0.000906,0.0723,0.0779,0.0594,0.0785,0.0918,0.0634,0.0853,0.105,0.00407,0.0789,0.0035,0.0581,0.0375,0.0632,0.0669,0.00293,0.0901,0.0208,0.0388,0.0893,0.00104,0.0598,0.0745,0.08,0.0283,0.0106,0.0371,0.0667,0.0331,0.0356,0.0661,0.0554,0.084,0.0398,0.00286,0.0281,0.0246,0.0208,0.0358,0.033,0.0421,0.0505,0.00544,0.0269,0.00527,0.0569,0.00538,0.0786,0.102,0.0452,0.0444,0.105,0.0765,0.0689,0.0249,0.0933,0.037,0.0762,0.0882,0.0505,0.0688,0.0666,0.101,0.0857,0.0488,0.0303,22.5328 --n_samples 60 --optimizer_config_file optimizer_config --lr 0.1
 ```
 
 ```jsx

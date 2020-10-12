@@ -242,7 +242,7 @@ def end_to_end_training(epochs: int,
 @click.option('--lr', type=float, default=1e-1)
 @click.option('--step_data_gen', type=float, default=0.1)
 @click.option('--n_samples_per_dim', type=int, default=3000)
-@click.option('--reuse_optimizer', type=bool, default=False)
+@click.option('--reuse_optimizer', type=bool, default=True)
 @click.option('--reuse_model', type=bool, default=False)
 @click.option('--shift_model', type=bool, default=False)
 @click.option('--finetune_model', type=bool, default=False)
