@@ -1611,6 +1611,7 @@ class BostonNNTuning(YModel):
         X, y = (boston.data, boston.target)
         self._X = torch.tensor(X).float().to(self._device)
         self._y = torch.tensor(y).float().view(-1, 1).to(self._device)
+        seed = torch.initial_seed()
         torch.manual_seed(1337)
         self._net = nn.Sequential(
             nn.Linear(13, 6),
@@ -1621,9 +1622,7 @@ class BostonNNTuning(YModel):
         self._d = dict([
             (tuple(x.detach().cpu().numpy().astype(np.float32)), y_.detach().cpu().numpy().astype(np.float32)[0])
             for x, y_ in zip(self._X, self._y)])
-        # print("torch seed: ", np.random.get_state()[1][-1])
-        torch.seed()
-        # torch.manual_seed(np.random.get_state()[1][-1])
+        torch.manual_seed(seed)
 
     def _set_parameters(self, psi):
         self._net[0].weight.data = psi[: 6 * 13].view(6, 13).detach().clone().float().to(self._device)
