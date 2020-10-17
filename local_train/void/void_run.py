@@ -62,7 +62,7 @@ class VoidOptimizer(BaseOptimizer):
                  num_repetitions: int,
                  n_samples: int,
                  *args, **kwargs):
-        super().__init__(oracle, x, *args, **kwargs)
+        super().__init__(oracle, x, trace=False, *args, **kwargs)
         self._x.requires_grad_(True)
         self._logger = logger
         self._num_repetitions = num_repetitions
@@ -70,24 +70,24 @@ class VoidOptimizer(BaseOptimizer):
 
     def _step(self):
         # for comet throtling problemm...
-        time.sleep(1.)
+        time.sleep(0.1)
         init_time = time.time()
 
         self._oracle.step()
-
+        f_k = torch.tensor(0.)
         x_k = self._oracle._psi.clone().detach()
-        f_k = self._oracle.func(self._oracle._psi, num_repetitions=self._num_repetitions)
         d_k = self._oracle.grad(self._oracle._psi, num_repetitions=self._num_repetitions)
         self._x = x_k
         if self._num_iter % 10 == 0:
+            f_k = self._oracle.func(self._oracle._psi, num_repetitions=self._num_repetitions)
             print("sigma", (1. + self._oracle._sigma.exp()).log())
             print(self._num_iter, f_k)
             self._logger.log_performance(y_sampler=self._oracle._y_model,
                                          current_psi=x_k,
                                          n_samples=self._n_samples, upload_pickle=False)
-            self._logger.log_grads(self._oracle,
-                                  y_sampler=self._oracle._y_model,
-                                  current_psi=x_k, num_repetitions=30000, n_samples=100, log_grad_diff=True)
+            # self._logger.log_grads(self._oracle,
+            #                       y_sampler=self._oracle._y_model,
+            #                       current_psi=x_k, num_repetitions=30000, n_samples=100, log_grad_diff=True)
 
             # estimate average grads from policy
             grad_void = []
