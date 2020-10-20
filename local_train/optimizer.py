@@ -518,15 +518,6 @@ class TorchOptimizer(BaseOptimizer):
         self._base_optimizer.zero_grad()
         d_k = self._oracle.grad(self._x, num_repetitions=self._num_repetitions).detach()
 
-        if self._lr_algo == "None":
-            self._base_optimizer.param_groups[0]['lr'] = self._x_step
-        elif self._lr_algo == "Grad":
-            self._base_optimizer.param_groups[0]['lr'] = self._x_step / d_k.norm().item()
-        elif self._lr_algo == "Dim":
-            self._base_optimizer.param_groups[0]['lr'] = self._x_step / np.sqrt(chi2.ppf(0.95, df=len(d_k)))
-        else:
-            pass
-
         print("Grad: ", d_k)
         self._x.grad = d_k.detach().clone()
         self._state_dict = copy.deepcopy(self._base_optimizer.state_dict())
