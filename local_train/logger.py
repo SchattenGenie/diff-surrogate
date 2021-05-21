@@ -134,10 +134,12 @@ class FuncSaver(object):
             num_repetitions = 485879
         func_wrap = self.print_validation(func)
         input_file = "reweighted_input_test.root"
+        const_field = True
         thread = Thread(target=lambda index, psi, num_repetitions, input_file: self.insert(
                             *(index, func_wrap(psi,
                                                num_repetitions=num_repetitions,
-                                               input_file=input_file).detach().cpu().numpy())),
+                                               input_file=input_file,
+                                               const_field=const_field).detach().cpu().numpy())),
                             args=(epoch, current_psi, num_repetitions, input_file)
                         )
         print("Start evaluation thread")

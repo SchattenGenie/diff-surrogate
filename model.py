@@ -280,19 +280,21 @@ class SHiPModel(YModel):
         print(r.content, d)
         return r.content.decode()
 
-    def _generate(self, condition, num_repetitions, input_file=None):
-        uuid = self._request_uuid(condition, num_repetitions=num_repetitions, input_file=input_file)
+    def _generate(self, condition, num_repetitions, input_file=None, const_field=None):
+        uuid = self._request_uuid(condition, num_repetitions=num_repetitions, input_file=input_file,
+                                  const_field=const_field)
         time.sleep(2.)
         data = self._request_data(uuid, wait=True)
         return data
 
-    def _generate_multiple(self, condition, num_repetitions, input_file=None):
+    def _generate_multiple(self, condition, num_repetitions, input_file=None, const_field=True):
         # making request to calculate new points
         res = {}
         uuids = []
         uuids_to_condition = {}
         for cond in condition:
-            uuid = self._request_uuid(cond, num_repetitions=num_repetitions, input_file=input_file)
+            uuid = self._request_uuid(cond, num_repetitions=num_repetitions, input_file=input_file,
+                                      const_field=const_field)
             uuids.append(uuid)
             uuids_to_condition[uuid] = cond
 
@@ -321,8 +323,8 @@ class SHiPModel(YModel):
         print("GM", len(res.keys()))
         return uuids_original, res
 
-    def _func(self, condition, num_repetitions, input_file=None):
-        res = self._generate(condition, num_repetitions=num_repetitions, input_file=input_file)
+    def _func(self, condition, num_repetitions, input_file=None, const_field=None):
+        res = self._generate(condition, num_repetitions=num_repetitions, input_file=input_file, const_field=const_field)
         y = torch.tensor(np.array(res[self.hits_key])[:, :2])
         loss = self.loss(y, condition)
         return loss
@@ -346,7 +348,8 @@ class SHiPModel(YModel):
 
     def func(self, condition, num_repetitions=100, **kwargs):
         if condition.ndim == 1:
-            res = self._func(condition, num_repetitions=num_repetitions, input_file=kwargs["input_file"])
+            res = self._func(condition, num_repetitions=num_repetitions, input_file=kwargs["input_file"],
+                             const_field=kwargs["const_field"])
         elif condition.ndim == 2:
             res = self._func_multiple(condition, num_repetitions=num_repetitions, input_file=kwargs["input_file"])
         else:
@@ -363,7 +366,8 @@ class SHiPModel(YModel):
         self.sample_from_gan(n_samples_per_dim + 50_000, output_path=self.path_to_output_root)
         uuids, data = self._generate_multiple(condition,
                                               num_repetitions=n_samples_per_dim,
-                                              input_file=self.root_filename)
+                                              input_file=self.root_filename,
+                                              const_field=True)
         print("ORIG ", len(uuids))
         y = []
         xs = []
@@ -559,11 +563,12 @@ class FullSHiPModel(SHiPModel):
         # Using muGAN to generate samples
         return self.sample_from_gan(num_repetitions, output_path=None)
 
-    def _request_uuid(self, condition, num_repetitions, input_file):
+    def _request_uuid(self, condition, num_repetitions, input_file, const_field):
         d = {"shape": list(map(lambda x: round(x, self.params_precision), condition.detach().cpu().numpy().tolist())),
              "n_events": num_repetitions,
              "n_jobs": 16,
-             "input_file": input_file}
+             "input_file": input_file,
+             "const_field": const_field}
         print("request_params", d)
         r = requests.post(
             "{}/simulate".format(self._address),
@@ -634,8 +639,8 @@ class FullSHiPModel(SHiPModel):
         #  return weight_loss * hits_loss + torch.nn.functional.relu(W - 3e6) * 1e8
         return hits_loss  #  + weight_loss * reg_coeff + torch.nn.functional.relu(W - 3e6) * 1e8
 
-    def _func(self, condition, num_repetitions, input_file=None):
-        res = self._generate(condition, num_repetitions=num_repetitions, input_file=input_file)
+    def _func(self, condition, num_repetitions, input_file=None, const_field=None):
+        res = self._generate(condition, num_repetitions=num_repetitions, input_file=input_file, const_field=const_field)
         y = torch.tensor(res[self.hits_key])[:, :2].float().to(self._device)
         xs = torch.tensor(res[self.kinematics_key]).float().to(self._device)
         psi = np.array(res[self.condition_key])
